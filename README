@@ -1,0 +1,15 @@
+# TETRIS
+
+## Build
+
+Use the following commands to build TETRIS
+
+```bash
+mkdir build && cd build
+cmake ..
+make
+```
+
+## Run
+
+TBD
