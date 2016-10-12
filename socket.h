@@ -3,7 +3,8 @@
 
 #pragma once
 
-#include "file_util.h"
+#include "path_util.h"
+#include "util.h"
 
 #include <cstring>
 #include <stdexcept>
@@ -96,7 +97,7 @@ class Socket
         }
 
         /* First check if the path already exists. */
-        if (::access(sock_path.c_str(), F_OK) == 0) {
+        if (path_util::exists(sock_path)) {
             throw std::runtime_error{"The socket is already taken."};
         }
 
@@ -121,7 +122,7 @@ class Socket
         }
 
         if (_blocking) {
-            make_fd_non_blocking(_fd);
+            util::make_fd_non_blocking(_fd);
             _blocking = false;
         }
     }

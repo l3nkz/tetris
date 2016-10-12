@@ -4,7 +4,8 @@
 #pragma once
 
 
-#include "file_util.h"
+#include "util.h"
+#include "path_util.h"
 #include "tetris.h"
 
 #include <cstring>
@@ -110,7 +111,7 @@ class Connection
         }
 
         /* Check if the socket already exists. */
-        if (::access(sock_path.c_str(), F_OK) != 0) {
+        if (!path_util::exists(sock_path)) {
             throw std::runtime_error{"The specified socket file does not exist."};
         }
 
@@ -135,7 +136,7 @@ class Connection
         }
 
         if (_blocking) {
-            make_fd_non_blocking(_fd);
+            util::make_fd_non_blocking(_fd);
             _blocking = false;
         }
     }
@@ -157,7 +158,7 @@ class Connection
             throw std::runtime_error{"Failed to read complete data!"};
         }
 
-        return InState::MORE;
+        return _blocking ? InState::DONE : InState::MORE;
     }
 
     OutState write(const TetrisData& data) {

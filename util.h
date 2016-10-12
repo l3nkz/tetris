@@ -1,5 +1,5 @@
-#ifndef __FILE_UTIL_H__
-#define __FILE_UTIL_H__
+#ifndef __UTIL_H__
+#define __UTIL_H__
 
 #pragma once
 
@@ -8,6 +8,8 @@
 
 #include <fcntl.h>
 
+
+namespace util {
 
 void make_fd_non_blocking(int fd)
 {
@@ -24,4 +26,6 @@ void make_fd_non_blocking(int fd)
     }
 }
 
-#endif /* __FILE_UTIL_H__ */
+} /* namespace util */
+
+#endif /* __UTIL_H__ */
