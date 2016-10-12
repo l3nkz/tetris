@@ -4,9 +4,10 @@
 #pragma once
 
 
-#include "util.h"
+#include "lock_util.h"
 #include "path_util.h"
 #include "tetris.h"
+#include "util.h"
 
 #include <cstring>
 #include <stdexcept>
@@ -17,7 +18,7 @@
 #include <unistd.h>
 
 
-class Connection
+class Connection : public Lockable<Connection>
 {
    public:
     enum class InState {
@@ -179,5 +180,7 @@ class Connection
         return OutState::DONE;
     }
 };
+
+using LockedConnection = Locked<Connection>;
 
 #endif /* __CONNECTION_H__ */

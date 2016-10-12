@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "lock_util.h"
 #include "path_util.h"
 #include "util.h"
 
@@ -15,7 +16,7 @@
 #include <unistd.h>
 
 
-class Socket
+class Socket : public Lockable<Socket>
 {
    private:
     int             _fd;
@@ -140,5 +141,7 @@ class Socket
         }
     }
 };
+
+using LockedSocket = Locked<Socket>;
 
 #endif /* __SOCKET_H__ */
