@@ -1,4 +1,6 @@
 #include "connection.h"
+#include "csv.h"
+#include "path_util.h"
 #include "socket.h"
 #include "tetris.h"
 
@@ -20,6 +22,14 @@ const static int MAXEVENTS = 100;
 
 using ConnectionPtr = std::shared_ptr<Connection>;
 
+struct Mapping
+{
+    std::map<std::string, int>  mapping;
+    double                      performance;
+    double                      energy;
+    double                      memory;
+};
+
 class Client
 {
    public:
@@ -33,24 +43,17 @@ class Client
         {}
     };
 
-    struct Mapping
-    {
-        std::map<std::string, int>  mapping;
-        double                      performance;
-        double                      energy;
-        double                      memory;
-    };
-
-   private:
-    ConnectionPtr       _connection;
-    std::string         _exec;
-    int                 _pid;
-    std::vector<Thread> _threads;
-    std::vector<Mapping> _mappings;
+   public:
+    ConnectionPtr           connection;
+    std::string             exec;
+    int                     pid;
+    std::vector<Thread>     threads;
+    std::vector<Mapping>    mappings;
+    Mapping                 active_mapping;
 
    public:
     Client(const ConnectionPtr& conn) :
-        _connection{conn}, _exec{}, _pid{-1}, _threads{}, _mappings{}
+        connection{conn}, exec{}, pid{-1}, threads{}, mappings{}, active_mapping{}
     {
         std::cout << "New client created." << std::endl;
     }
@@ -60,42 +63,53 @@ class Client
         std::cout << "Client removed." << std::endl;
     }
 
-    bool message()
+    void new_thread(const std::string& name, int pid)
     {
-        while (1) {
-            TetrisData data;
-
-            auto res = _connection->read(data);
-
-            if (res == Connection::InState::DONE) {
-                /* We are done processing. So return. */
-                return false;
-            } else if (res == Connection::InState::CLOSED) {
-                /* We are done processing and the remote site closed the
-                 * connection. */
-                return true;
-            } else {
-                /* There is some data to process. Handle it. */
-                switch (data.op) {
-                    case TetrisData::NEW_CLIENT:
-                        std::cout << "New client registered." << std::endl
-                            << " > Exec: " << data.new_client_data.exec << std::endl
-                            << " > Pid: " << data.new_client_data.pid << std::endl;
-                        break;
-                    default:
-                        std::cout << "Other message received." << std::endl;
-                }
-            }
-        }
+        threads.emplace_back(name, pid);
     }
 };
 
 class Manager
 {
    private:
-    std::map<int, Client> _clients;
+    std::map<int, Client>   _clients;
+    std::string             _mappings_path;
+    std::map<std::string, std::vector<Mapping>> _mappings;
+
+    std::vector<Mapping> parse_mapping(const std::string& file)
+    {
+        CSVData data{file};
+        std::vector<Mapping> result;
+
+        for (const auto& row : data.row_iter()) {
+            Mapping m;
+            for (const auto& col : data.columns()) {
+                if (string_util::starts_with(col, "t_")) {
+                    std::string thread_name = col.substr(2);
+                    std::string cpu_name = row(col);
+                    int cpu_nr = std::stoi(cpu_name.substr(3));
+
+                    m.mapping.emplace(thread_name, cpu_nr);
+                }
+            }
+
+            m.performance = std::stod(row("executionTime"));
+            m.energy = std::stod(row("energyConsumption"));
+            m.memory = std::stod(row("memorySize"));
+
+            result.push_back(m);
+        }
+
+        return result;
+    }
 
    public:
+    explicit Manager(const std::string& mappings_path) :
+        _clients{}, _mappings_path{mappings_path}, _mappings{}
+    {
+        update_mappings();
+    }
+
     void client_connect(int fd, const ConnectionPtr& conn)
     {
         _clients.emplace(fd, conn);
@@ -107,19 +121,131 @@ class Manager
     }
 
     bool client_message(int fd)
-    {
-        try {
-            return _clients.at(fd).message();
-        } catch (std::out_of_range) {
-            std::cerr << "Unknown client: " << fd << "." << std::endl;
-            return true;
+    try {
+        Client& c = _clients.at(fd);
+        ConnectionPtr conn = c.connection;
+
+        bool done = false;
+        bool close = false;
+
+        while (!done) {
+            TetrisData message;
+
+            auto res = conn->read(message);
+
+            if (res == Connection::InState::DONE) {
+                /* We are done processing. So return. */
+                done = true;
+            } else if (res == Connection::InState::CLOSED) {
+                /* We are done processing and the remote site closed the
+                 * connection. */
+                close = true;
+                done = true;
+            } else {
+                /* There is some data to process. Handle it. */
+                switch (message.op) {
+                    case TetrisData::NEW_CLIENT: {
+                        /* Update the client data. */
+                        c.pid = message.new_client_data.pid;
+                        c.exec = string_util::strip(path_util::basename(message.new_client_data.exec));
+                        bool managed;
+                        try {
+                            /* Set the mappings on the client. */
+                            c.mappings = _mappings.at(c.exec);
+                            c.active_mapping = c.mappings.front();
+
+                            std::cout << "New client registered: '" << c.exec << "' [" << c.pid << "]" << std::endl;
+
+                            /* We will manage this client. */
+                            managed = true;
+                        } catch (std::out_of_range&) {
+                            std::cout << "Unknown client: '" << c.exec << "' [" << c.pid << "]" << std::endl;
+                            managed = false;
+                        }
+
+                        /* We need to acknowledge this message. */
+                        TetrisData ack;
+                        ack.op = TetrisData::NEW_CLIENT_ACK;
+                        ack.new_client_ack_data.managed = managed;
+
+                        if (conn->write(ack) != Connection::OutState::DONE) {
+                            std::cerr << "Failed to acknowledge the new client message." << std::endl;
+                        }
+
+                        /* If we don't manage this client we can close its connection. */
+                        close = !managed;
+                        break;
+                    }
+                    case TetrisData::Operations::NEW_THREAD: {
+                        break;
+                    }
+                    case TetrisData::Operations::THREAD_AFFINITY: {
+                        break;
+                    }
+                    default:
+                        std::cout << "Other message received." << std::endl;
+                }
+            }
         }
+
+        return close;
+    } catch (std::out_of_range) {
+        std::cerr << "Unknown client: " << fd << "." << std::endl;
+        return true;
+    }
+
+    void update_mappings()
+    {
+        std::cout << "Update mapping database (" << _mappings_path << ")." << std::endl;
+        _mappings.clear();
+
+        path_util::for_each_file(_mappings_path, [&](const std::string& file) -> void {
+            if (path_util::extension(file) == ".csv") {
+                std::string program = string_util::strip(path_util::filename(file));
+                std::cout << " -> found mapping for '" << program << "'" << std::endl;
+
+                _mappings.emplace(program, parse_mapping(file));
+            }
+        });
     }
 };
 
+
+void usage()
+{
+    std::cout << "usage: tetrisserver [-h] [MAPPINGS]" << std::endl
+        << std::endl
+        << "Options:" << std::endl
+        << "   -h, --help           show this help message." << std::endl
+        << std::endl
+        << "Positionals:" << std::endl
+        << " MAPPINGS               path the folder with the per-app mappings." << std::endl;
+}
+
 int main(int argc, char *argv[])
 {
-    Manager manager;
+    /* Parsing command line arguments. */
+    std::string mappings_path;
+
+    if (argc > 2) {
+        usage();
+        return 1;
+    } else if (argc == 1) {
+        mappings_path = path_util::getcwd();
+    } else {
+        std::string arg{argv[1]};
+        if (arg == "-h" || arg == "--help") {
+            usage();
+            return 0;
+        } else {
+            mappings_path = path_util::abspath(path_util::expanduser(arg));
+        }
+    }
+
+    /* Setting up the manager. */
+    Manager manager{mappings_path};
+
+    /* Setting up the server socket */
     Socket server_sock;
     int sock_fd = -1;
     try {
@@ -146,6 +272,7 @@ int main(int argc, char *argv[])
         sigaddset(&sigmask, SIGINT);
         sigaddset(&sigmask, SIGQUIT);
         sigaddset(&sigmask, SIGTERM);
+        sigaddset(&sigmask, SIGUSR1);
 
         /* First block the signals. */
         sigprocmask(SIG_BLOCK, &sigmask, nullptr);
@@ -255,7 +382,13 @@ int main(int argc, char *argv[])
                     }
 
                     std::cout << "Received a signal (" << siginfo.ssi_signo << ")." << std::endl;
-                    done = 1;
+
+                    if (siginfo.ssi_signo == SIGUSR1) {
+                        std::cout << "Refreshing mapping database." << std::endl;
+                        manager.update_mappings();
+                    } else {
+                        done = 1;
+                    }
                 }
             } else if (cur->events & EPOLLIN) {
                 /* Some client tried to send us data. */
