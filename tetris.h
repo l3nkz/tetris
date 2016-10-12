@@ -12,7 +12,7 @@ struct TetrisData {
         NEW_CLIENT = 1,
         NEW_CLIENT_ACK = 2,
         NEW_THREAD = 3,
-        THREAD_AFFINITY = 4,
+        NEW_THREAD_ACK = 4,
         ERROR
     };
 
@@ -26,12 +26,13 @@ struct TetrisData {
             bool managed;
         } new_client_ack_data;
         struct {
-            int pid;
+            int tid;
             char name[100];
         } new_thread_data;
         struct {
-            char name[100];
-        } thread_affinity_data;
+            bool managed;
+            int cpu;
+        } new_thread_ack_data;
     };
 };
 

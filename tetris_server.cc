@@ -4,6 +4,7 @@
 #include "socket.h"
 #include "tetris.h"
 
+#include <algorithm>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -11,6 +12,7 @@
 #include <vector>
 
 #include <errno.h>
+#include <sched.h>
 #include <signal.h>
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
@@ -24,7 +26,7 @@ using ConnectionPtr = std::shared_ptr<Connection>;
 
 struct Mapping
 {
-    std::map<std::string, int>  mapping;
+    std::map<std::string, int>  thread_map;
     double                      performance;
     double                      energy;
     double                      memory;
@@ -63,9 +65,17 @@ class Client
         std::cout << "Client removed." << std::endl;
     }
 
-    void new_thread(const std::string& name, int pid)
+    int new_thread(const std::string& name, int pid)
     {
-        threads.emplace_back(name, pid);
+        auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) { 
+                return t.name == name;
+        });
+
+        if (i != threads.end()) {
+            threads.emplace_back(name, pid);
+        }
+
+        return active_mapping.thread_map.at(name);
     }
 };
 
@@ -89,7 +99,7 @@ class Manager
                     std::string cpu_name = row(col);
                     int cpu_nr = std::stoi(cpu_name.substr(3));
 
-                    m.mapping.emplace(thread_name, cpu_nr);
+                    m.thread_map.emplace(thread_name, cpu_nr);
                 }
             }
 
@@ -145,21 +155,22 @@ class Manager
                 /* There is some data to process. Handle it. */
                 switch (message.op) {
                     case TetrisData::NEW_CLIENT: {
-                        /* Update the client data. */
-                        c.pid = message.new_client_data.pid;
-                        c.exec = string_util::strip(path_util::basename(message.new_client_data.exec));
+                        int pid = message.new_client_data.pid;
+                        std::string exec = string_util::strip(path_util::basename(message.new_client_data.exec));
                         bool managed;
                         try {
-                            /* Set the mappings on the client. */
-                            c.mappings = _mappings.at(c.exec);
+                            /* Update the client data. */
+                            c.pid = pid;
+                            c.exec = exec;
+                            c.mappings = _mappings.at(exec);
                             c.active_mapping = c.mappings.front();
 
-                            std::cout << "New client registered: '" << c.exec << "' [" << c.pid << "]" << std::endl;
+                            std::cout << "New client registered: '" << exec << "' [" << pid << "]" << std::endl;
 
                             /* We will manage this client. */
                             managed = true;
                         } catch (std::out_of_range&) {
-                            std::cout << "Unknown client: '" << c.exec << "' [" << c.pid << "]" << std::endl;
+                            std::cout << "Unknown client: '" << exec << "' [" << pid << "]" << std::endl;
                             managed = false;
                         }
 
@@ -169,7 +180,7 @@ class Manager
                         ack.new_client_ack_data.managed = managed;
 
                         if (conn->write(ack) != Connection::OutState::DONE) {
-                            std::cerr << "Failed to acknowledge the new client message." << std::endl;
+                            std::cerr << "Failed to acknowledge the new-client message." << std::endl;
                         }
 
                         /* If we don't manage this client we can close its connection. */
@@ -177,9 +188,42 @@ class Manager
                         break;
                     }
                     case TetrisData::Operations::NEW_THREAD: {
-                        break;
-                    }
-                    case TetrisData::Operations::THREAD_AFFINITY: {
+                        int tid = message.new_thread_data.tid;
+                        std::string name = string_util::strip(message.new_thread_data.name);
+                        bool managed;
+                        int cpu = -1;
+                        try {
+                            /* Update the client data. */
+                            cpu = c.new_thread(name, tid);
+
+                            std::cout << "New thread '" << name << "' [" << tid << "] for client '" << c.exec << "'"
+                                << " registered. Run at cpu " << cpu << std::endl;
+
+                            /* Set the affinity for the thread. */
+                            cpu_set_t mask;
+                            CPU_ZERO(&mask);
+                            CPU_SET(cpu, &mask);
+                            if (sched_setaffinity(tid, sizeof(mask), &mask) != 0) {
+                                std::cerr << "Failed to set cpu affinity for the thread." << std::endl
+                                    << strerror(errno) << std::endl;
+                            }
+
+                            managed = true;
+                        } catch (std::out_of_range) {
+                            std::cout << "Unknown thread '" << name << "' for client '" << c.exec << "'" << std::endl;
+                            managed = false;
+                        }
+
+                        /* We need to acknowledge this message. */
+                        TetrisData ack;
+                        ack.op = TetrisData::NEW_THREAD_ACK;
+                        ack.new_thread_ack_data.managed = managed;
+                        ack.new_thread_ack_data.cpu = cpu;
+
+                        if (conn->write(ack) != Connection::OutState::DONE) {
+                            std::cerr << "Failed to acknowledge the new-thread message." << std::endl;
+                        }
+
                         break;
                     }
                     default:
