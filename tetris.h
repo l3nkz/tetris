@@ -11,9 +11,8 @@ struct TetrisData {
     enum Operations {
         NEW_CLIENT = 1,
         NEW_CLIENT_ACK = 2,
-        DEL_CLIENT = 3,
-        NEW_THREAD = 4,
-        THREAD_AFFINITY = 5,
+        NEW_THREAD = 3,
+        THREAD_AFFINITY = 4,
         ERROR
     };
 
@@ -26,9 +25,6 @@ struct TetrisData {
         struct {
             bool managed;
         } new_client_ack_data;
-        struct {
-            int pid;
-        } del_client_data;
         struct {
             int pid;
             char name[100];
