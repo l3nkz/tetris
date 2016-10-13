@@ -621,6 +621,11 @@ class Slice
     Slice& operator=(const Slice&) = default;
     Slice& operator=(Slice&&) = default;
 
+    std::string fixed() const
+    {
+        return _fixed;
+    }
+
     std::vector<std::string> names() const
     {
         return _other_dim;
@@ -749,6 +754,11 @@ class ConstSlice
 
     ConstSlice& operator=(const ConstSlice&) = default;
     ConstSlice& operator=(ConstSlice&&) = default;
+
+    std::string fixed() const
+    {
+        return _fixed;
+    }
 
     std::vector<std::string> names() const
     {

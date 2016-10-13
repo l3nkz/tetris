@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -26,6 +27,7 @@ using ConnectionPtr = std::shared_ptr<Connection>;
 
 struct Mapping
 {
+    std::string                 name;
     std::map<std::string, int>  thread_map;
     double                      performance;
     double                      energy;
@@ -93,6 +95,9 @@ class Manager
 
         for (const auto& row : data.row_iter()) {
             Mapping m;
+
+            m.name = row.fixed();
+
             for (const auto& col : data.columns()) {
                 if (string_util::starts_with(col, "t_")) {
                     std::string thread_name = col.substr(2);
@@ -111,6 +116,21 @@ class Manager
         }
 
         return result;
+    }
+
+    template <typename Criteria = std::function<double(const Mapping&)>, typename Comp = std::function<bool(double, double)>>
+    Mapping select_best_mapping(Client& c,
+            Criteria criteria = [] (const Mapping& m) { return m.performance; },
+            Comp better = [] (double a, double b) { return a > b; })
+    {
+        auto best = c.mappings.front();
+
+        for (const auto& m : c.mappings) {
+            if (better(criteria(m), criteria(best)))
+                best = m;
+        }
+
+        return best;
     }
 
    public:
@@ -163,9 +183,10 @@ class Manager
                             c.pid = pid;
                             c.exec = exec;
                             c.mappings = _mappings.at(exec);
-                            c.active_mapping = c.mappings.front();
+                            c.active_mapping = select_best_mapping(c);
 
                             std::cout << "New client registered: '" << exec << "' [" << pid << "]" << std::endl;
+                            std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
 
                             /* We will manage this client. */
                             managed = true;
