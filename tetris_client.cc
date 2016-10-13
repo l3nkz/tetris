@@ -2,6 +2,8 @@
 #include "tetris.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -18,6 +20,143 @@
 
 
 /***
+ * Time Keeping
+ ***/
+
+template <typename T, typename Clock, typename Resolution>
+class TimeKeeper
+{
+   private:
+    T&      _total;
+    typename Clock::time_point _start;
+    bool _running;
+
+   public:
+    TimeKeeper(T& total) :
+        _total{total}, _start{}, _running{false}
+    {
+        start();
+    }
+
+    ~TimeKeeper()
+    {
+        stop();
+    }
+
+    void start()
+    {
+        if (!_running) {
+            _start = Clock::now();
+            _running = true;
+        }
+    }
+
+    void stop()
+    {
+        if (_running) {
+            auto end = Clock::now();
+            _total += std::chrono::duration_cast<Resolution>(end - _start).count();
+            _running = false;
+        }
+    }
+};
+
+
+/***
+ * Logging
+ ***/
+
+class Logger
+{
+   private:
+    enum Level {
+        NONE = 0,
+        ERROR = 1,
+        INFO = 2,
+        DEBUG = 3
+    };
+
+    int _level;
+
+   public:
+    Logger() :
+        _level(NONE)
+    {
+        char *log_level = getenv("TETRIS_LOGLEVEL");
+
+        if (log_level) {
+            if (strcmp(log_level, "DEBUG") == 0)
+                _level = DEBUG;
+            else if (strcmp(log_level, "INFO") == 0)
+                _level = INFO;
+            else if (strcmp(log_level, "ERROR") == 0)
+                _level = ERROR;
+        }
+    }
+
+    template <typename... Args>
+    void debug(const char* fmt, Args... args)
+    {
+        if (_level >= DEBUG)
+            printf(fmt, args...);
+    }
+
+    template <typename... Args>
+    void info(const char* fmt, Args... args)
+    {
+        if (_level >= INFO)
+            printf(fmt, args...);
+    }
+
+    template <typename... Args>
+    void error(const char* fmt, Args... args)
+    {
+        if (_level >= ERROR)
+            printf(fmt, args...);
+    }
+
+    template <typename... Args>
+    void always(const char* fmt, Args... args)
+    {
+        printf(fmt, args...);
+    }
+};
+
+
+struct ThreadInfo {
+    pthread_t*          pthread_id;
+    pthread_mutex_t     mtx;
+    pthread_cond_t      cond;
+
+    pid_t               tid;
+    char                name[100];
+
+    bool                setup = false;
+    bool                managed = false;
+
+    void* (*func)(void*);
+    void* arg;
+};
+
+
+/***
+ * Global variables
+ ***/
+using LoggerPtr = std::unique_ptr<Logger>;
+using Timer = TimeKeeper<std::atomic_ulong, std::chrono::system_clock, std::chrono::nanoseconds>;
+using ConnectionPtr = std::unique_ptr<Connection>;
+using ThreadList = std::vector<ThreadInfo*>;
+using ThreadListPtr = std::unique_ptr<ThreadList>;
+
+LoggerPtr logger;
+ConnectionPtr connection;
+ThreadListPtr threads;
+
+bool managed_by_tetris;
+std::atomic_ulong time_ns;
+
+
+/***
  * TETRIS library support
  ***/
 
@@ -31,14 +170,14 @@ bool tetris_new_client(LockedConnection conn, int pid, const char* exec) {
     std::strncpy(data.new_client_data.exec, exec, sizeof(data.new_client_data.exec));
 
     if (conn->write(data) != Connection::OutState::DONE) {
-        perror("Failed to send new-client message.\n");
+        logger->error("Failed to send new-client message.\n");
         return false;
     }
 
     /* Get the answer. */
     memset(&data, 0, sizeof(data));
     if (conn->read(data) != Connection::InState::DONE) {
-        perror("Failed to get answer from server.\n");
+        logger->error("Failed to get answer from server.\n");
         return false;
     }
 
@@ -56,18 +195,18 @@ bool tetris_new_thread(LockedConnection conn, int tid, const char* name)
     std::strncpy(data.new_thread_data.name, name, sizeof(data.new_thread_data.name));
 
     if (conn->write(data) != Connection::OutState::DONE) {
-        perror("Failed to send new-thread message.\n");
+        logger->error("Failed to send new-thread message.\n");
         return false;
     }
 
     /* Get the answer. */
     memset(&data, 0, sizeof(data));
     if (conn->read(data) != Connection::InState::DONE) {
-        perror("Failed to get answer from server.\n");
+        logger->error("Failed to get answer from server.\n");
         return false;
     }
 
-    printf("Thread %s should run at %d\n", name, data.new_thread_ack_data.cpu);
+    logger->info("Thread %s should run at %d\n", name, data.new_thread_ack_data.cpu);
     return data.new_thread_ack_data.managed;
 }
 
@@ -75,41 +214,52 @@ bool tetris_new_thread(LockedConnection conn, int tid, const char* name)
 /***
  * Library setup and tierdown
  ***/
-bool managed_by_tetris;
-std::unique_ptr<Connection> conn;
-
 extern "C"
 void __attribute__((constructor)) setup(void)
 {
-    printf("Loading TETRIS support\n");
+    Timer t{time_ns};
+
+    time_ns = 0;
+    logger = std::make_unique<Logger>();
+    threads = std::make_unique<ThreadList>();
+
+    logger->info("Loading TETRIS support\n");
 
     try {
-        conn = std::make_unique<Connection>(SERVER_SOCKET);
+        connection = std::make_unique<Connection>(SERVER_SOCKET);
 
         char exec[100];
+        memset(exec, 0, sizeof(exec));
+
         readlink("/proc/self/exe", exec, sizeof(exec));
         int pid = getpid();
 
-        if (tetris_new_client(conn->locked(), pid, exec)) {
-            printf("->> Managed by TETRIS <<-\n");
+        if (tetris_new_client(connection->locked(), pid, exec)) {
+            logger->info("->> Managed by TETRIS <<-\n");
             managed_by_tetris = true;
         } else {
-            printf("->> NOT managed by TETRIS <<-\n");
+            logger->info("->> NOT managed by TETRIS <<-\n");
             managed_by_tetris = false;
-            conn.release();
+            connection.release();
         }
     } catch(std::runtime_error& e) {
-        printf("Failed to connect to TETRIS server.\n--> %s <--\n", e.what());
+        logger->error("Failed to connect to TETRIS server.\n--> %s <--\n", e.what());
         managed_by_tetris = false;
-        conn.release();
+        connection.release();
     }
 }
 
 extern "C"
 void __attribute__((destructor)) tierdown(void)
 {
+    Timer t{time_ns};
+
     if (managed_by_tetris)
-        conn.release();
+        connection.release();
+
+    t.stop();
+    unsigned long ns = time_ns;
+    logger->always("Total time spent in TETRIS: %lu ns\n", ns);
 }
 
 
@@ -117,26 +267,11 @@ void __attribute__((destructor)) tierdown(void)
  * pthread wrapper
  ***/
 
-struct ThreadInfo {
-    pthread_t*          pthread_id;
-    pthread_mutex_t     mtx;
-    pthread_cond_t      cond;
-
-    pid_t               tid;
-    char                name[100];
-
-    bool                setup = false;
-    bool                managed = false;
-
-    void* (*func)(void*);
-    void* arg;
-};
-
-std::vector<ThreadInfo*> threads;
-
 static
 void* thread_wrapper(void *arg)
 {
+    Timer t{time_ns};
+
     auto ti = static_cast<ThreadInfo*>(arg);
 
     pthread_mutex_lock(&ti->mtx);
@@ -149,11 +284,12 @@ void* thread_wrapper(void *arg)
         pthread_cond_wait(&ti->cond, &ti->mtx);
     }
 
-    ti->managed = tetris_new_thread(conn->locked(), ti->tid, ti->name);
+    ti->managed = tetris_new_thread(connection->locked(), ti->tid, ti->name);
 
     pthread_mutex_unlock(&ti->mtx);
 
     /* Call the actual function. */
+    t.stop();
     return ti->func(ti->arg);
 }
 
@@ -162,6 +298,8 @@ int pthread_create(pthread_t *thread_id, const pthread_attr_t *attr,
         void* (*routine)(void*), void *arg) 
 {
     using real_func_t = int (*)(pthread_t*, const pthread_attr_t*, void*(*)(void*), void*);
+
+    Timer t{time_ns};
 
     /* Get the real pthread_create function. */
     real_func_t real_func = nullptr;
@@ -187,7 +325,7 @@ int pthread_create(pthread_t *thread_id, const pthread_attr_t *attr,
 
             /* We need to safe the information so we can find it in
              * later pthread* calls. */
-            threads.push_back(ti);
+            threads->push_back(ti);
 
             return real_func(thread_id, attr, thread_wrapper, ti);
         } else {
@@ -197,7 +335,7 @@ int pthread_create(pthread_t *thread_id, const pthread_attr_t *attr,
         }
     } else {
         /* Something went wrong while getting the function. ABORT */
-        perror("Failed to get real pthread_create function.\n");
+        logger->error("Failed to get real pthread_create function.\n");
         exit(-1);
     }
 }
@@ -207,6 +345,8 @@ int pthread_setname_np(pthread_t thread_id, const char *name)
 {
     using real_func_t = int(*)(pthread_t, const char*);
 
+    Timer t{time_ns};
+
     /* Get the real pthread_setname_np function. */
     real_func_t real_func = nullptr;
     real_func = reinterpret_cast<real_func_t>(dlsym(RTLD_NEXT, "pthread_setname_np"));
@@ -214,11 +354,11 @@ int pthread_setname_np(pthread_t thread_id, const char *name)
     if (real_func != nullptr) {
         if (managed_by_tetris) {
             /* Search for the ThreadInfo struct of this thread. */
-            auto iti = std::find_if(threads.begin(), threads.end(), [&](ThreadInfo* ti) -> bool {
+            auto iti = std::find_if(threads->begin(), threads->end(), [&](ThreadInfo* ti) -> bool {
                     return pthread_equal(*(ti->pthread_id), thread_id) != 0;
             });
 
-            if (iti != threads.end()) {
+            if (iti != threads->end()) {
                 /* Ok we found the corresponding ThreadInfo. So first
                  * make the actual call and then signal the thread that
                  * it is properly setup now. */
@@ -236,7 +376,7 @@ int pthread_setname_np(pthread_t thread_id, const char *name)
             } else {
                 /* We could not find the corresponding ThreadInfo struct.
                  * Something went wrong here!. */
-                perror("Failed to find appropriate ThreadInfo struct.\n");
+                logger->error("Failed to find appropriate ThreadInfo struct.\n");
                 exit(-1);
             }
         } else {
@@ -246,7 +386,7 @@ int pthread_setname_np(pthread_t thread_id, const char *name)
         }
     } else {
         /* Something went wrong while getting the function. ABORT */
-        perror("Failed to get real pthread_setname_np function.\n");
+        logger->error("Failed to get real pthread_setname_np function.\n");
         exit(-1);
     }
 }
@@ -256,6 +396,8 @@ int pthread_setaffinity_np(pthread_t thread_id, size_t cpusetsize,
         const cpu_set_t *cpuset)
 {
     using real_func_t = int(*)(pthread_t, size_t, const cpu_set_t*);
+
+    Timer t{time_ns};
 
     /* Get the real pthread_setaffinity_np function. */
     real_func_t real_func = nullptr;
@@ -275,7 +417,7 @@ int pthread_setaffinity_np(pthread_t thread_id, size_t cpusetsize,
 
     } else {
         /* Something went wrong while getting the function. ABORT */
-        perror("Failed to get real pthread_setaffinity_np function.\n");
+        logger->error("Failed to get real pthread_setaffinity_np function.\n");
         exit(-1);
     }
 }
