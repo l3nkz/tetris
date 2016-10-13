@@ -123,6 +123,10 @@ class Logger
 };
 
 
+/***
+ * Thread management
+ ***/
+
 struct ThreadInfo {
     pthread_t*          pthread_id;
     pthread_mutex_t     mtx;
@@ -142,6 +146,7 @@ struct ThreadInfo {
 /***
  * Global variables
  ***/
+
 using LoggerPtr = std::unique_ptr<Logger>;
 using Timer = TimeKeeper<std::atomic_ulong, std::chrono::system_clock, std::chrono::nanoseconds>;
 using ConnectionPtr = std::unique_ptr<Connection>;
@@ -214,6 +219,7 @@ bool tetris_new_thread(LockedConnection conn, int tid, const char* name)
 /***
  * Library setup and tierdown
  ***/
+
 extern "C"
 void __attribute__((constructor)) setup(void)
 {
