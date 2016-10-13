@@ -264,8 +264,12 @@ void __attribute__((destructor)) tierdown(void)
         connection.release();
 
     t.stop();
-    unsigned long ns = time_ns;
-    logger->always("Total time spent in TETRIS: %lu ns\n", ns);
+
+    unsigned long _ns = time_ns;
+    unsigned long ms = _ns/1000000;
+    unsigned us = (_ns % 1000000) / 1000;
+    unsigned ns = _ns % 1000;
+    logger->always("Total time spent in TETRIS: %lu.%03u%03lu ms (%lu ns)\n", ms, us, ns, _ns);
 }
 
 
