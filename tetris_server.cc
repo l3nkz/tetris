@@ -29,7 +29,7 @@ struct Mapping
 {
     std::string                 name;
     std::map<std::string, int>  thread_map;
-    double                      performance;
+    double                      exec_time;
     double                      energy;
     double                      memory;
 };
@@ -108,7 +108,7 @@ class Manager
                 }
             }
 
-            m.performance = std::stod(row("executionTime"));
+            m.exec_time = std::stod(row("executionTime"));
             m.energy = std::stod(row("energyConsumption"));
             m.memory = std::stod(row("memorySize"));
 
@@ -120,8 +120,8 @@ class Manager
 
     template <typename Criteria = std::function<double(const Mapping&)>, typename Comp = std::function<bool(double, double)>>
     Mapping select_best_mapping(Client& c,
-            Criteria criteria = [] (const Mapping& m) { return m.performance; },
-            Comp better = [] (double a, double b) { return a > b; })
+            Criteria criteria = [] (const Mapping& m) { return m.exec_time; },
+            Comp better = [] (double a, double b) { return a < b; })
     {
         auto best = c.mappings.front();
 
