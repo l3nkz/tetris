@@ -130,12 +130,13 @@ class Logger
 struct ThreadInfo {
     pthread_t*          pthread_id;
     pthread_mutex_t     mtx;
-    pthread_cond_t      cond;
 
     pid_t               tid;
     char                name[100];
 
-    bool                setup = false;
+    bool                named = false;
+    bool                ready = false;
+
     bool                managed = false;
 
     void* (*func)(void*);
@@ -288,13 +289,10 @@ void* thread_wrapper(void *arg)
 
     /* Update the tid information in the ThreadInfo struct for this thread. */
     ti->tid = syscall(SYS_gettid);
+    ti->ready = true;
 
-    if (!ti->setup) {
-        /* Wait until the thread is properly setup. */
-        pthread_cond_wait(&ti->cond, &ti->mtx);
-    }
-
-    ti->managed = tetris_new_thread(connection->locked(), ti->tid, ti->name);
+    if (ti->named && ti->ready)
+        ti->managed = tetris_new_thread(connection->locked(), ti->tid, ti->name);
 
     pthread_mutex_unlock(&ti->mtx);
 
@@ -328,7 +326,6 @@ int pthread_create(pthread_t *thread_id, const pthread_attr_t *attr,
             auto ti = new ThreadInfo{};
             ti->pthread_id = thread_id;
             pthread_mutex_init(&ti->mtx, nullptr);
-            pthread_cond_init(&ti->cond, nullptr);
 
             ti->func = routine;
             ti->arg = arg;
@@ -377,9 +374,11 @@ int pthread_setname_np(pthread_t thread_id, const char *name)
                 auto ti = *iti;
                 pthread_mutex_lock(&ti->mtx);
                 strncpy(ti->name, name, sizeof(ti->name));
-                ti->setup = true;
+                ti->named = true;
 
-                pthread_cond_broadcast(&ti->cond);
+                if (ti->named && ti->ready)
+                    ti->managed = tetris_new_thread(connection->locked(), ti->tid, ti->name);
+
                 pthread_mutex_unlock(&ti->mtx);
 
                 return res;
