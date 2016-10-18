@@ -21,6 +21,8 @@ struct TetrisData {
         struct {
             int pid;
             char exec[100];
+            bool has_preferred_mapping;
+            char preferred_mapping[25];
         } new_client_data;
         struct {
             bool managed;

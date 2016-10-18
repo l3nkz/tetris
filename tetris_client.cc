@@ -167,13 +167,19 @@ std::atomic_ulong time_ns;
  ***/
 
 static
-bool tetris_new_client(LockedConnection conn, int pid, const char* exec) {
+bool tetris_new_client(LockedConnection conn, int pid, const char* exec, const char* preferred_mapping) {
     TetrisData data;
 
     /* Send the new-client message to the server. */
     data.op = TetrisData::NEW_CLIENT;
     data.new_client_data.pid = pid;
     std::strncpy(data.new_client_data.exec, exec, sizeof(data.new_client_data.exec));
+    if (preferred_mapping) {
+        data.new_client_data.has_preferred_mapping = true;
+        std::strncpy(data.new_client_data.preferred_mapping, preferred_mapping, sizeof(data.new_client_data.preferred_mapping));
+    } else {
+        data.new_client_data.has_preferred_mapping = false;
+    }
 
     if (conn->write(data) != Connection::OutState::DONE) {
         logger->error("Failed to send new-client message.\n");
@@ -240,8 +246,9 @@ void __attribute__((constructor)) setup(void)
 
         readlink("/proc/self/exe", exec, sizeof(exec));
         int pid = getpid();
+        char *preferred_mapping = getenv("TETRIS_PREFERRED_MAPPING");
 
-        if (tetris_new_client(connection->locked(), pid, exec)) {
+        if (tetris_new_client(connection->locked(), pid, exec, preferred_mapping)) {
             logger->info("->> Managed by TETRIS <<-\n");
             managed_by_tetris = true;
         } else {

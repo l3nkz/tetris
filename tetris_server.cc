@@ -133,6 +133,17 @@ class Manager
         return best;
     }
 
+    Mapping use_preferred_mapping(Client& c, const std::string& preferred_mapping_name)
+    {
+        for (const auto& m : c.mappings) {
+            if (m.name == preferred_mapping_name)
+                return m;
+        }
+
+        /* We could not find the specified mapping. Use the best one. */
+        return select_best_mapping(c);
+    }
+
    public:
     explicit Manager(const std::string& mappings_path) :
         _clients{}, _mappings_path{mappings_path}, _mappings{}
@@ -183,7 +194,12 @@ class Manager
                             c.pid = pid;
                             c.exec = exec;
                             c.mappings = _mappings.at(exec);
-                            c.active_mapping = select_best_mapping(c);
+                            if (message.new_client_data.has_preferred_mapping) {
+                                std::string preferred_mapping = string_util::strip(message.new_client_data.preferred_mapping);
+                                c.active_mapping = use_preferred_mapping(c, preferred_mapping);
+                            } else {
+                                c.active_mapping = select_best_mapping(c);
+                            }
 
                             std::cout << "New client registered: '" << exec << "' [" << pid << "]" << std::endl;
                             std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
