@@ -1,5 +1,6 @@
 #include "connection.h"
 #include "csv.h"
+#include "mapping.h"
 #include "path_util.h"
 #include "socket.h"
 #include "tetris.h"
@@ -24,15 +25,6 @@ const static int MAXEVENTS = 100;
 
 
 using ConnectionPtr = std::shared_ptr<Connection>;
-
-struct Mapping
-{
-    std::string                 name;
-    std::map<std::string, int>  thread_map;
-    double                      exec_time;
-    double                      energy;
-    double                      memory;
-};
 
 class Client
 {
@@ -94,25 +86,23 @@ class Manager
         std::vector<Mapping> result;
 
         for (const auto& row : data.row_iter()) {
-            Mapping m;
-
-            m.name = row.fixed();
+            std::vector<std::pair<std::string, std::string>> thread_map;
 
             for (const auto& col : data.columns()) {
                 if (string_util::starts_with(col, "t_")) {
                     std::string thread_name = col.substr(2);
                     std::string cpu_name = row(col);
-                    int cpu_nr = std::stoi(cpu_name.substr(3));
 
-                    m.thread_map.emplace(thread_name, cpu_nr);
+                    thread_map.emplace_back(thread_name, cpu_name);
                 }
             }
 
-            m.exec_time = std::stod(row("executionTime"));
-            m.energy = std::stod(row("energyConsumption"));
-            m.memory = std::stod(row("memorySize"));
+            auto name = row.fixed();
+            auto exec_time = std::stod(row("executionTime"));
+            auto energy = std::stod(row("energyConsumption"));
+            auto memory = std::stod(row("memorySize"));
 
-            result.push_back(m);
+            result.emplace_back(name, thread_map, exec_time, energy, memory);
         }
 
         return result;
@@ -194,6 +184,7 @@ class Manager
                             c.pid = pid;
                             c.exec = exec;
                             c.mappings = _mappings.at(exec);
+
                             if (message.new_client_data.has_preferred_mapping) {
                                 std::string preferred_mapping = string_util::strip(message.new_client_data.preferred_mapping);
                                 c.active_mapping = use_preferred_mapping(c, preferred_mapping);
