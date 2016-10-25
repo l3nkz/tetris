@@ -17,7 +17,7 @@ to the mappings for each program. The server executable is located in the
 'bin'-directory.
 
 After the server started up, it is now possible to run other applications and
-let them manage by the TETRIS server. To achieve this, one has to add the
+let the TETRIS server manage them. To achieve this, one has to add the
 TETRIS-client library to the program. This can be achieved by preloading the
 library with the LD_PRELOAD primitive. The library is located in the 
 'lib'-directory.
