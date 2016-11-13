@@ -250,7 +250,7 @@ void __attribute__((constructor)) setup(void)
         char *preferred_mapping = getenv("TETRIS_PREFERRED_MAPPING");
 	char *dynamic_mapping = getenv("TETRIS_DYNAMIC_MAPPING");
 	bool dynamic_client = false;
-	if (strcmp(dynamic_mapping,"1") == 0) {
+	if (dynamic_mapping && strcmp(dynamic_mapping,"1") == 0) {
 		logger->info("Enabled dynamic/CFS mappings!");
 		dynamic_client = true;
 	}
