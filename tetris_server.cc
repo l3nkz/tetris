@@ -244,7 +244,9 @@ class Manager
                                 std::cerr << "Failed to set cpu affinity for the thread." << std::endl
                                     << strerror(errno) << std::endl;
                             }
+                            std::cerr << "Set affinity" << std::endl;
 			    CPU_FREE(mask);
+                            std::cerr << "Freed mask" << std::endl;
                             managed = true;
                         } catch (std::out_of_range) {
                             std::cout << "Unknown thread '" << name << "' for client '" << c.exec << "'" << std::endl;
