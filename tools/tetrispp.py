@@ -17,7 +17,7 @@ def parseMapping(path):
 	schedulers = doc.getElementsByTagName("SingleSchedulerDesc")
 	for i in schedulers:
 		for p in i.getElementsByTagName("Process"):
-			themap[p.attributes["Name"].value] = i.attributes["Name"].value[22:27]
+			themap["t_"+p.attributes["Name"].value] = i.attributes["Name"].value[22:27]
 
 	ov = [m for m in os.scandir(path) if m.name.endswith(".outputOverview")]
 	if (len(ov) == 0):
