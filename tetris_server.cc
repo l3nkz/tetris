@@ -60,7 +60,7 @@ class Client
         std::cout << "Client removed." << std::endl;
     }
 
-    cpu_set_t new_thread(const std::string& name, int pid)
+    cpu_set_t* new_thread(const std::string& name, int pid)
     {
         auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) { 
                 return t.name == name;
@@ -70,14 +70,15 @@ class Client
             threads.emplace_back(name, pid);
         }
 
-        cpu_set_t mask;
-        CPU_ZERO(&mask);
+        cpu_set_t* mask = CPU_ALLOC(8);
+        CPU_ZERO(mask);
 	if (dynamic_client) {
 	    for (std::pair<std::string,int> p : active_mapping.thread_map) {
-                CPU_SET(p.second,&mask);
+                CPU_SET(p.second,mask);
+		std::cout << "Enabling cpu " << p.second << "(for " << p.first << ")" << std::endl;
             }
         } else {
-            CPU_SET(active_mapping.thread_map.at(name),&mask);
+            CPU_SET(active_mapping.thread_map.at(name),mask);
         }
 	return mask;
     }
@@ -231,20 +232,19 @@ class Manager
                         int tid = message.new_thread_data.tid;
                         std::string name = string_util::strip(message.new_thread_data.name);
                         bool managed;
-                        int cpu = -1;
                         try {
                             /* Update the client data. */
-                            cpu_set_t mask = c.new_thread(name, tid);
+                            cpu_set_t* mask = c.new_thread(name, tid);
 
                             std::cout << "New thread '" << name << "' [" << tid << "] for client '" << c.exec << "'"
-                                << " registered. Run at cpu " << cpu << std::endl;
+                                << " registered." << std::endl;
 
                             /* Set the affinity for the thread. */
-                            if (sched_setaffinity(tid, sizeof(mask), &mask) != 0) {
+                            if (sched_setaffinity(tid, CPU_ALLOC_SIZE(8), mask) != 0) {
                                 std::cerr << "Failed to set cpu affinity for the thread." << std::endl
                                     << strerror(errno) << std::endl;
                             }
-
+			    CPU_FREE(mask);
                             managed = true;
                         } catch (std::out_of_range) {
                             std::cout << "Unknown thread '" << name << "' for client '" << c.exec << "'" << std::endl;
@@ -255,7 +255,7 @@ class Manager
                         TetrisData ack;
                         ack.op = TetrisData::NEW_THREAD_ACK;
                         ack.new_thread_ack_data.managed = managed;
-                        ack.new_thread_ack_data.cpu = cpu;
+                        ack.new_thread_ack_data.cpu = -1; //cpu;
 
                         if (conn->write(ack) != Connection::OutState::DONE) {
                             std::cerr << "Failed to acknowledge the new-thread message." << std::endl;
