@@ -167,12 +167,13 @@ std::atomic_ulong time_ns;
  ***/
 
 static
-bool tetris_new_client(LockedConnection conn, int pid, const char* exec, const char* preferred_mapping) {
+bool tetris_new_client(LockedConnection conn, int pid, const char* exec, const char* preferred_mapping, bool dynamic_client) {
     TetrisData data;
 
     /* Send the new-client message to the server. */
     data.op = TetrisData::NEW_CLIENT;
     data.new_client_data.pid = pid;
+    data.new_client_data.dynamic_client = dynamic_client;
     std::strncpy(data.new_client_data.exec, exec, sizeof(data.new_client_data.exec));
     if (preferred_mapping) {
         data.new_client_data.has_preferred_mapping = true;
@@ -247,8 +248,14 @@ void __attribute__((constructor)) setup(void)
         readlink("/proc/self/exe", exec, sizeof(exec));
         int pid = getpid();
         char *preferred_mapping = getenv("TETRIS_PREFERRED_MAPPING");
+	char *dynamic_mapping = getenv("TETRIS_DYNAMIC_MAPPING");
+	bool dynamic_client = false;
+	if (strcmp(dynamic_mapping,"1") == 0) {
+		logger->info("Enabled dynamic/CFS mappings!");
+		dynamic_client = true;
+	}
 
-        if (tetris_new_client(connection->locked(), pid, exec, preferred_mapping)) {
+        if (tetris_new_client(connection->locked(), pid, exec, preferred_mapping, dynamic_client)) {
             logger->info("->> Managed by TETRIS <<-\n");
             managed_by_tetris = true;
         } else {

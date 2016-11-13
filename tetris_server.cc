@@ -192,8 +192,13 @@ class Manager
                                 c.active_mapping = select_best_mapping(c);
                             }
 
+                            if (message.new_client_data.dynamic_client) {
+                                //TODO: rewrite active mapping ...
+                            }
+
                             std::cout << "New client registered: '" << exec << "' [" << pid << "]" << std::endl;
                             std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
+                            std::cout << "Client is " << ((message.new_client_data.dynamic_client)?" managed dynamically by CFS.":" mapped statically.") << std::endl;
 
                             /* We will manage this client. */
                             managed = true;

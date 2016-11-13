@@ -22,6 +22,7 @@ struct TetrisData {
             int pid;
             char exec[100];
             bool has_preferred_mapping;
+            bool dynamic_client;
             char preferred_mapping[25];
         } new_client_data;
         struct {
