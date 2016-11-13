@@ -43,13 +43,14 @@ class Client
     ConnectionPtr           connection;
     std::string             exec;
     int                     pid;
+    bool                    dynamic_client;
     std::vector<Thread>     threads;
     std::vector<Mapping>    mappings;
     Mapping                 active_mapping;
 
    public:
     Client(const ConnectionPtr& conn) :
-        connection{conn}, exec{}, pid{-1}, threads{}, mappings{}, active_mapping{}
+        connection{conn}, exec{}, pid{-1}, dynamic_client{false}, threads{}, mappings{}, active_mapping{}
     {
         std::cout << "New client created." << std::endl;
     }
@@ -59,7 +60,7 @@ class Client
         std::cout << "Client removed." << std::endl;
     }
 
-    int new_thread(const std::string& name, int pid)
+    cpu_set_t new_thread(const std::string& name, int pid)
     {
         auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) { 
                 return t.name == name;
@@ -69,7 +70,16 @@ class Client
             threads.emplace_back(name, pid);
         }
 
-        return active_mapping.thread_map.at(name);
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+	if (dynamic_client) {
+	    for (std::pair<std::string,int> p : active_mapping.thread_map) {
+                CPU_SET(p.second,&mask);
+            }
+        } else {
+            CPU_SET(active_mapping.thread_map.at(name),&mask);
+        }
+	return mask;
     }
 };
 
@@ -183,6 +193,7 @@ class Manager
                             /* Update the client data. */
                             c.pid = pid;
                             c.exec = exec;
+                            c.dynamic_client = message.new_client_data.dynamic_client;
                             c.mappings = _mappings.at(exec);
 
                             if (message.new_client_data.has_preferred_mapping) {
@@ -192,13 +203,9 @@ class Manager
                                 c.active_mapping = select_best_mapping(c);
                             }
 
-                            if (message.new_client_data.dynamic_client) {
-                                //TODO: rewrite active mapping ...
-                            }
-
                             std::cout << "New client registered: '" << exec << "' [" << pid << "]" << std::endl;
                             std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
-                            std::cout << "Client is " << ((message.new_client_data.dynamic_client)?"managed dynamically by CFS.":"mapped statically.") << std::endl;
+                            std::cout << "Client is " << ((c.dynamic_client)?"managed dynamically by CFS.":"mapped statically.") << std::endl;
 
                             /* We will manage this client. */
                             managed = true;
@@ -227,15 +234,12 @@ class Manager
                         int cpu = -1;
                         try {
                             /* Update the client data. */
-                            cpu = c.new_thread(name, tid);
+                            cpu_set_t mask = c.new_thread(name, tid);
 
                             std::cout << "New thread '" << name << "' [" << tid << "] for client '" << c.exec << "'"
                                 << " registered. Run at cpu " << cpu << std::endl;
 
                             /* Set the affinity for the thread. */
-                            cpu_set_t mask;
-                            CPU_ZERO(&mask);
-                            CPU_SET(cpu, &mask);
                             if (sched_setaffinity(tid, sizeof(mask), &mask) != 0) {
                                 std::cerr << "Failed to set cpu affinity for the thread." << std::endl
                                     << strerror(errno) << std::endl;
