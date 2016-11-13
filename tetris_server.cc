@@ -60,7 +60,7 @@ class Client
         std::cout << "Client removed." << std::endl;
     }
 
-    cpu_set_t* new_thread(const std::string& name, int pid)
+    cpu_set_t new_thread(const std::string& name, int pid)
     {
         auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) { 
                 return t.name == name;
@@ -70,15 +70,15 @@ class Client
             threads.emplace_back(name, pid);
         }
 
-        cpu_set_t* mask = CPU_ALLOC(8);
-        CPU_ZERO(mask);
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
 	if (dynamic_client) {
 	    for (std::pair<std::string,int> p : active_mapping.thread_map) {
-                CPU_SET(p.second,mask);
+                CPU_SET(p.second,&mask);
 		std::cout << "Enabling cpu " << p.second << "(for " << p.first << ")" << std::endl;
             }
         } else {
-            CPU_SET(active_mapping.thread_map.at(name),mask);
+            CPU_SET(active_mapping.thread_map.at(name),&mask);
         }
 	return mask;
     }
@@ -234,19 +234,15 @@ class Manager
                         bool managed;
                         try {
                             /* Update the client data. */
-                            cpu_set_t* mask = c.new_thread(name, tid);
-
+                            cpu_set_t mask = c.new_thread(name, tid);
                             std::cout << "New thread '" << name << "' [" << tid << "] for client '" << c.exec << "'"
                                 << " registered." << std::endl;
 
                             /* Set the affinity for the thread. */
-                            if (sched_setaffinity(tid, CPU_ALLOC_SIZE(8), mask) != 0) {
+                            if (sched_setaffinity(tid, sizeof(cpu_set_t), &mask) != 0) {
                                 std::cerr << "Failed to set cpu affinity for the thread." << std::endl
                                     << strerror(errno) << std::endl;
                             }
-                            std::cerr << "Set affinity" << std::endl;
-			    CPU_FREE(mask);
-                            std::cerr << "Freed mask" << std::endl;
                             managed = true;
                         } catch (std::out_of_range) {
                             std::cout << "Unknown thread '" << name << "' for client '" << c.exec << "'" << std::endl;
