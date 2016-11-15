@@ -12,6 +12,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <bitset>
+#include <deque>
 
 #include <errno.h>
 #include <sched.h>
@@ -33,9 +35,10 @@ class Client
     {
         std::string     name;
         int             pid;
+        cpu_set_t	affinity;
 
-        Thread(const std::string& name, int pid) :
-            name{name}, pid{pid}
+        Thread(const std::string& name, int pid, cpu_set_t affinity) :
+            name{name}, pid{pid}, affinity{affinity}
         {}
     };
 
@@ -49,6 +52,8 @@ class Client
     Mapping                 active_mapping;
 
    public:
+    Client(const Client&) = delete;
+
     Client(const ConnectionPtr& conn) :
         connection{conn}, exec{}, pid{-1}, dynamic_client{false}, threads{}, mappings{}, active_mapping{}
     {
@@ -62,25 +67,26 @@ class Client
 
     cpu_set_t new_thread(const std::string& name, int pid)
     {
-        auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) { 
-                return t.name == name;
-        });
-
-        if (i != threads.end()) {
-            threads.emplace_back(name, pid);
-        }
-
         cpu_set_t mask;
         CPU_ZERO(&mask);
-	if (dynamic_client) {
-	    for (std::pair<std::string,int> p : active_mapping.thread_map) {
+        if (dynamic_client) {
+            for (std::pair<std::string,int> p : active_mapping.thread_map) {
                 CPU_SET(p.second,&mask);
-		std::cout << "Enabling cpu " << p.second << "(for " << p.first << ")" << std::endl;
+                std::cout << "Enabling cpu " << p.second << "(for " << p.first << ")" << std::endl;
             }
         } else {
             CPU_SET(active_mapping.thread_map.at(name),&mask);
         }
-	return mask;
+        
+        auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) { 
+                return t.name == name;
+        });
+        if (i == threads.end()) {
+            threads.emplace_back(name, pid,mask);
+        } else {
+            std::cerr << "WARNING! Duplicate thread ..." << std::endl;
+        }
+        return mask;
     }
 };
 
@@ -273,6 +279,33 @@ class Manager
         return true;
     }
 
+    void print_mappings() {
+        std::cout << "Currently active mappings:" << std::endl
+                  << "==========================" << std::endl;
+        for (const std::pair<int,const Client&>& c : _clients) {
+            std::cout << "-> Client: " << c.first << std::endl;
+            for (const Client::Thread& t : c.second.threads) {
+                std::deque<int> CPUs;  
+                std::cout << "Thread: (" << t.pid << "," << t.name << ") ";
+                for (int i = 7; i >= 0; i--) { //TODO: This is fixed to 8 cpus!
+                    std::cout << CPU_ISSET(i,&t.affinity);
+                    if (CPU_ISSET(i,&t.affinity)) {
+                        CPUs.push_back(i);
+                    }
+                }
+                std::cout << " (";
+                while (!CPUs.empty()) {
+                    std::cout << CPUs.front();
+                    CPUs.pop_front();
+                    if (!CPUs.empty()) std::cout << ",";
+                }
+    	    	std::cout << ")" << std::endl;
+
+            }           
+        }
+    	std::cout << "======= END OF LIST =======" << std::endl;
+    } 
+
     void update_mappings()
     {
         std::cout << "Update mapping database (" << _mappings_path << ")." << std::endl;
@@ -352,6 +385,7 @@ int main(int argc, char *argv[])
         sigaddset(&sigmask, SIGQUIT);
         sigaddset(&sigmask, SIGTERM);
         sigaddset(&sigmask, SIGUSR1);
+        sigaddset(&sigmask, SIGUSR2);
 
         /* First block the signals. */
         sigprocmask(SIG_BLOCK, &sigmask, nullptr);
@@ -465,6 +499,9 @@ int main(int argc, char *argv[])
                     if (siginfo.ssi_signo == SIGUSR1) {
                         std::cout << "Refreshing mapping database." << std::endl;
                         manager.update_mappings();
+		    } else if (siginfo.ssi_signo == SIGUSR2) {
+			    std::cout << "Printing mappings ..." << std::endl;
+			manager.print_mappings();
                     } else {
                         done = 1;
                     }
