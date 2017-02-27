@@ -5,7 +5,23 @@
 
 
 static const char* SERVER_SOCKET = "/tmp/tetris_socket";
+static const char* CONTROL_SOCKET = "/tmp/tetris_ctl";
 
+
+struct ControlData {
+    enum Operations {
+        REMAP_CLIENT = 1,
+        ERROR
+    };
+
+    Operations op;
+    union {
+        struct {
+            int client_fd;
+            char new_mapping[25];
+        } remap_data;
+    };
+};
 
 struct TetrisData {
     enum Operations {

@@ -19,3 +19,4 @@ target_link_libraries(tetrisclient Threads::Threads ${CMAKE_DL_LIBS})
 
 # tetris server
 add_executable(tetrisserver tetris_server.cc)
+add_executable(tetrisctl tetris_ctl.cc)

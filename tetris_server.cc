@@ -168,6 +168,36 @@ class Manager
         _clients.erase(fd);
     }
 
+    void remap(int fd , const std::string& preferred_mapping_name) {
+        try {
+            Client& c = _clients.at(fd);
+            for (const auto& m : c.mappings) {
+                if (m.name == preferred_mapping_name) {
+                    c.active_mapping = m;
+                    break;
+                }
+            }
+	    //Remap the threads ...
+	    for (Client::Thread& t : c.threads) {
+	    	std::cout << "Remapping: " << t.name << std::endl;
+	    	cpu_set_t& mask = t.affinity;
+		CPU_ZERO(&mask);
+		if (c.dynamic_client) {
+			for (std::pair<std::string,int> p : c.active_mapping.thread_map) {
+				CPU_SET(p.second,&mask);
+				std::cout << "Enabling cpu " << p.second << " (for " << p.first << ")" << std::endl;
+			}
+		} else {
+			std::cout << "Pinning thread " << t.name << " to cpu " << c.active_mapping.thread_map.at(t.name) << std::endl;
+			CPU_SET(c.active_mapping.thread_map.at(t.name),&mask);
+		}
+		sched_setaffinity(t.pid,sizeof(cpu_set_t),&mask);
+	    }
+        } catch (std::out_of_range e) {
+            std::cerr << "Unknown client " << fd << std::endl;
+        }
+    }
+
     bool client_message(int fd)
     try {
         Client& c = _clients.at(fd);
@@ -211,7 +241,10 @@ class Manager
                             }
 
                             std::cout << "New client registered: '" << exec << "' [" << pid << "]" << std::endl;
-                            std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
+			    cpu_set_t mask = c.new_thread("@main",c.pid);
+			    sched_setaffinity(c.pid,sizeof(cpu_set_t),&mask);
+
+			    std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
                             std::cout << "Client is " << ((c.dynamic_client)?"managed dynamically by CFS.":"mapped statically.") << std::endl;
 
                             /* We will manage this client. */
@@ -371,8 +404,24 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    /* Setting up control socket */
+    Socket ctl_sock;
+    int ctl_fd = -1;
+    try {
+        ctl_sock.open(CONTROL_SOCKET);
+        ctl_sock.non_blocking();
+        ctl_sock.listening();
+        ctl_fd = ctl_sock.fd();
+    } catch (std::runtime_error& e) {
+        std::cerr << "Failed to open control socket" << std::endl
+		  << e.what() << std::endl;
+	    return 2;
+    }
+
     std::cout << "Server socket initialized at " << server_sock.path() << " ("
         << sock_fd << ")." << std::endl;
+    std::cout << "Control socket initialized at " << ctl_sock.path() << " ("
+        << ctl_fd << ")." << std::endl;
 
     /* Setup signal handling */
     int sig_fd = -1;
@@ -410,20 +459,14 @@ int main(int argc, char *argv[])
         }
 
         epoll_event e;
-        e.data.fd = sock_fd;
-        e.events = EPOLLIN;
-        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock_fd, &e) == -1) {
-            std::cerr << "Failed to add server socket to epoll." << std::endl
-                << strerror(errno) << std::endl;
-            return 1;
-        }
-
-        e.data.fd = sig_fd;
-        e.events = EPOLLIN;
-        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sig_fd, &e) == -1) {
-            std::cerr << "Failed to add signal fd to epoll." << std::endl
-                << strerror(errno) << std::endl;
-            return 1;
+        for (auto fd : {sock_fd,ctl_fd, sig_fd}) {
+            e.data.fd = fd;
+            e.events = EPOLLIN;
+            if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &e) == -1) {
+                std::cerr << "Failed to add socket " << fd << " to epoll." << std::endl
+                          << strerror(errno) << std::endl;
+                return 1;
+            }
         }
     }
 
@@ -439,14 +482,14 @@ int main(int argc, char *argv[])
         for (int i = 0; i < n; ++i) {
             epoll_event *cur = &events[i];
 
-            if (cur->data.fd == sock_fd) {
+            if (cur->data.fd == sock_fd || cur->data.fd == ctl_fd) {
                 /* There are a new connections at the socket.
                  * Connect with all of them.
                  */
                 while (1) {
                     sockaddr_un in_sock;
                     socklen_t in_sock_size = sizeof(in_sock);
-                    int infd = ::accept(sock_fd, reinterpret_cast<sockaddr*>(&in_sock), &in_sock_size);
+                    int infd = ::accept(cur->data.fd, reinterpret_cast<sockaddr*>(&in_sock), &in_sock_size);
                     if (infd == -1) {
                         if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
                             /* We connected to all possible connections already.
@@ -461,7 +504,7 @@ int main(int argc, char *argv[])
                     }
 
                     /* Make the new socket non-blocking and add it to epoll. */
-                    {
+                    if (cur->data.fd == sock_fd) {
                         ConnectionPtr in_conn = std::make_shared<Connection>(infd, in_sock);
                         in_conn->non_blocking();
                         epoll_event e;
@@ -477,7 +520,20 @@ int main(int argc, char *argv[])
 
                             manager.client_connect(infd, in_conn);
                         }
-                    }
+                    } else if (cur->data.fd == ctl_fd) {
+                        ControlData cd;
+                        Connection(infd,in_sock).read(cd);
+                        switch (cd.op) {
+                            case ControlData::REMAP_CLIENT:
+                                std::cout << "Remapping client " << cd.remap_data.client_fd
+                                          << " to mapping " << cd.remap_data.new_mapping << std::endl;
+                                manager.remap(cd.remap_data.client_fd,string_util::strip(cd.remap_data.new_mapping));
+                                break;
+                            case ControlData::ERROR:
+                              std::cerr << "An error happend in the control connection." << std::endl;
+                              break;
+                        }
+		    }
                 }
             } else if (cur->data.fd == sig_fd) {
                 /* There was a signal delivered to this process. */

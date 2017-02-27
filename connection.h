@@ -142,7 +142,8 @@ class Connection : public Lockable<Connection>
         }
     }
 
-    InState read(TetrisData& data) {
+    template<typename T>
+    InState read(T& data) {
         if (_fd == -1) {
             throw std::runtime_error{"Connection not initialized."};
         }
@@ -162,7 +163,8 @@ class Connection : public Lockable<Connection>
         return _blocking ? InState::DONE : InState::MORE;
     }
 
-    OutState write(const TetrisData& data) {
+    template<typename T>
+    OutState write(const T& data) {
         if (_fd == -1) {
             throw std::runtime_error{"Connection not initialized."};
         }
