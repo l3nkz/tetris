@@ -69,7 +69,7 @@ class Client
     {
         cpu_set_t mask;
         CPU_ZERO(&mask);
-        if (dynamic_client) {
+        if (dynamic_client || active_mapping.thread_map.find(name) == active_mapping.thread_map.end()) {
             for (std::pair<std::string,int> p : active_mapping.thread_map) {
                 CPU_SET(p.second,&mask);
                 std::cout << "Enabling cpu " << p.second << "(for " << p.first << ")" << std::endl;
