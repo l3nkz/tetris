@@ -42,3 +42,9 @@ client library outputs. Possible values are DEBUG, INFO and ERROR.
 
 This environmental variable can be used to force the server to use one particular
 mapping. The value of this variable should be the name of the preferred mapping.
+
+#### TETRIS_DYNAMIC_MAPPING
+
+This environment variable will tell tetris that no pinning should be used but instead
+the threads should be left movable. Only the list of available CPUs will be limited to
+the ones that the selected mapping contains.

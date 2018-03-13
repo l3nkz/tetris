@@ -248,12 +248,12 @@ void __attribute__((constructor)) setup(void)
         readlink("/proc/self/exe", exec, sizeof(exec));
         int pid = getpid();
         char *preferred_mapping = getenv("TETRIS_PREFERRED_MAPPING");
-	char *dynamic_mapping = getenv("TETRIS_DYNAMIC_MAPPING");
-	bool dynamic_client = false;
-	if (dynamic_mapping && strcmp(dynamic_mapping,"1") == 0) {
-		logger->info("Enabled dynamic/CFS mappings!");
-		dynamic_client = true;
-	}
+        bool dynamic_client = false;
+
+        if (getenv("TETRIS_DYNAMIC_MAPPING")) {
+            logger->info("Enabled dynamic/CFS mappings!");
+            dynamic_client = true;
+        }
 
         if (tetris_new_client(connection->locked(), pid, exec, preferred_mapping, dynamic_client)) {
             logger->info("->> Managed by TETRIS <<-\n");
