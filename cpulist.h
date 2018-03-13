@@ -47,6 +47,35 @@ class CPUList
         return !(*this == o);
     }
 
+    CPUList operator+(const CPUList& o) const
+    {
+        CPUList tmp{*this};
+        tmp.unite(o);
+
+        return tmp;
+    }
+
+    CPUList& operator+=(const CPUList& o)
+    {
+        unite(o);
+        return *this;
+    }
+
+    CPUList operator-(const CPUList& o) const
+    {
+        CPUList tmp{*this};
+        tmp.intersect(o);
+
+        return tmp;
+    }
+
+    CPUList operator-=(const CPUList& o)
+    {
+        intersect(o);
+
+        return *this;
+    }
+
     void set(int cpu_nr)
     {
         if (std::find(_cpus.begin(), _cpus.end(), cpu_nr) != _cpus.end())
@@ -59,6 +88,20 @@ class CPUList
 
         if (i != _cpus.end())
             _cpus.erase(i);
+    }
+
+    void unite(const CPUList& o)
+    {
+        for (auto c : o._cpus) {
+            set(c);
+        }
+    }
+
+    void intersect(const CPUList& o)
+    {
+        for (auto c : o._cpus) {
+            clear(c);
+        }
     }
 
     bool overlaps_with(const CPUList& o) const
@@ -83,7 +126,6 @@ class CPUList
         }
 
         return res;
-
     }
 };
 

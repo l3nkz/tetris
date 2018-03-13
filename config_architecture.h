@@ -21,4 +21,6 @@ std::map<std::string, int> cpu_map =
     {"ARM07", 7}
 };
 
+const static int num_cpus = 8;
+
 #endif /* __CONFIG_ARCHITECTURE_H__ */

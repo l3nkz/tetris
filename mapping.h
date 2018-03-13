@@ -50,7 +50,7 @@ class Mapping
     CPUList         cpus;
 
    private:
-    Mapping(Mapping& base, const CPUList& cpus) :
+    Mapping(const Mapping& base, const CPUList& cpus) :
         name{base.name}, thread_map{}, exec_time{base.exec_time}, energy{base.energy},
         memory{base.memory}, cpus{cpus}
     {
@@ -74,7 +74,7 @@ class Mapping
         }
     }
 
-    std::vector<Mapping> equivalent_mappings()
+    std::vector<Mapping> equivalent_mappings() const
     {
         std::vector<Mapping> result;
 

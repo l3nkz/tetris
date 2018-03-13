@@ -13,7 +13,8 @@ namespace string_util {
 
 /* Prototypes */
 bool ends_with(const std::string&, const std::string&);
-std::string join(const std::vector<std::string>&, char delim=' ');
+template <template<typename> class Container>
+std::string join(const Container<std::string>&, char delim=' ');
 std::string lstrip(const std::string&);
 std::string rstrip(const std::string&);
 std::vector<std::string> split(const std::string&, char delim=' ');
@@ -34,7 +35,8 @@ bool ends_with(const std::string& s, const std::string& end)
     return true;
 }
 
-std::string join(const std::vector<std::string>& subs, char delim)
+template <template<typename> class Container>
+std::string join(const Container<std::string>& subs, char delim)
 {
     if (subs.size() == 0) {
         return {};

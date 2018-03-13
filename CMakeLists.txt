@@ -6,8 +6,8 @@ cmake_minimum_required(VERSION 3.1)
 set(LIBRARY_OUTPUT_PATH "${CMAKE_SOURCE_DIR}/lib")
 set(EXECUTABLE_OUTPUT_PATH "${CMAKE_SOURCE_DIR}/bin")
 
-# use c++14
-set(CMAKE_CXX_STANDARD "14")
+# use c++17
+set(CMAKE_CXX_STANDARD "17")
 
 # dependent libraries
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
@@ -17,6 +17,8 @@ find_package(Threads REQUIRED)
 add_library(tetrisclient SHARED tetris_client.cc)
 target_link_libraries(tetrisclient Threads::Threads ${CMAKE_DL_LIBS})
 
-# tetris server
-add_executable(tetrisserver tetris_server.cc)
+# tetris server binary
+add_executable(tetrisserver tetris_server.cc algorithm.cc)
+
+# tetris control binary
 add_executable(tetrisctl tetris_ctl.cc)

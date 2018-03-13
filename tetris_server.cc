@@ -1,19 +1,21 @@
+#include "algorithm.h"
 #include "connection.h"
 #include "csv.h"
 #include "mapping.h"
 #include "path_util.h"
 #include "socket.h"
+#include "string_util.h"
 #include "tetris.h"
 
 #include <algorithm>
+#include <deque>
 #include <iostream>
 #include <functional>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
-#include <bitset>
-#include <deque>
 
 #include <errno.h>
 #include <sched.h>
@@ -25,6 +27,11 @@
 
 const static int MAXEVENTS = 100;
 
+class NoMappingError : public std::runtime_error
+{
+   public:
+    using std::runtime_error::runtime_error;
+};
 
 using ConnectionPtr = std::shared_ptr<Connection>;
 
@@ -34,11 +41,11 @@ class Client
     struct Thread
     {
         std::string     name;
-        int             pid;
+        int             tid;
         cpu_set_t       affinity;
 
-        Thread(const std::string& name, int pid, cpu_set_t affinity) :
-            name{name}, pid{pid}, affinity{affinity}
+        Thread(const std::string& name, int tid, cpu_set_t affinity) :
+            name{name}, tid{tid}, affinity{affinity}
         {}
     };
 
@@ -71,12 +78,15 @@ class Client
         CPU_ZERO(&mask);
 
         if (dynamic_client || active_mapping.thread_map.find(name) == active_mapping.thread_map.end()) {
-            for (std::pair<std::string,int> p : active_mapping.thread_map) {
-                CPU_SET(p.second,&mask);
-                std::cout << "Enabling cpu " << p.second << "(for " << p.first << ")" << std::endl;
+            std::cout << "Enabling all mapping cpus for this client." << std::endl;
+
+            for (auto [name, cpu] : active_mapping.thread_map) {
+                CPU_SET(cpu, &mask);
+
+                std::cout << "Enabling cpu " << cpu << "(for thread " << name << ")" << std::endl;
             }
         } else {
-            CPU_SET(active_mapping.thread_map.at(name),&mask);
+            CPU_SET(active_mapping.thread_map.at(name), &mask);
         }
 
         auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) {
@@ -133,9 +143,21 @@ class Manager
             Criteria criteria = [] (const Mapping& m) { return m.exec_time; },
             Comp better = [] (double a, double b) { return a < b; })
     {
-        auto best = c.mappings.front();
+        CPUList occupied_cpus;
 
-        for (const auto& m : c.mappings) {
+        for (const auto& [name, cl] : _clients) {
+            occupied_cpus += cl.active_mapping.cpus;
+        }
+
+        /* Get all the tetris mappings for this client */
+        auto possible_mappings = tetris_mappings(c.mappings, occupied_cpus);
+        if (possible_mappings.empty())
+            throw NoMappingError("Can't find a proper mapping for the client");
+
+        /* Now select the best one of the available ones according to the given
+         * criteria and the given comperator */
+        auto best = possible_mappings.front();
+        for (const auto& m : possible_mappings) {
             if (better(criteria(m), criteria(best)))
                 best = m;
         }
@@ -171,36 +193,38 @@ class Manager
         _clients.erase(fd);
     }
 
-    void remap(int fd, const std::string& preferred_mapping_name) {
-        try {
-            Client& c = _clients.at(fd);
-            for (const auto& m : c.mappings) {
-                if (m.name == preferred_mapping_name) {
-                    c.active_mapping = m;
-                    break;
-                }
-            }
+    void remap(int fd, const std::string& preferred_mapping_name)
+    try {
+        Client& c = _clients.at(fd);
 
-            //Remap the threads ...
-            for (auto& t : c.threads) {
-                std::cout << "Remapping: " << t.name << std::endl;
-                cpu_set_t& mask = t.affinity;
-                CPU_ZERO(&mask);
-
-                if (c.dynamic_client) {
-                    for (std::pair<std::string,int> p : c.active_mapping.thread_map) {
-                        CPU_SET(p.second, &mask);
-                        std::cout << "Enabling cpu " << p.second << " (for " << p.first << ")" << std::endl;
-                    }
-                } else {
-                    std::cout << "Pinning thread " << t.name << " to cpu " << c.active_mapping.thread_map.at(t.name) << std::endl;
-                    CPU_SET(c.active_mapping.thread_map.at(t.name), &mask);
-                }
-                sched_setaffinity(t.pid,sizeof(cpu_set_t), &mask);
+        for (const auto& m : c.mappings) {
+            if (m.name == preferred_mapping_name) {
+                c.active_mapping = m;
+                break;
             }
-        } catch (std::out_of_range e) {
-            std::cerr << "Unknown client " << fd << std::endl;
         }
+
+        for (auto& t : c.threads) {
+            std::cout << "Remapping: " << t.name << std::endl;
+            cpu_set_t& mask = t.affinity;
+            CPU_ZERO(&mask);
+
+            if (c.dynamic_client) {
+                std::cout << "Enabling all cpus for dynamic clients." << std::endl;
+
+                for (auto [name, cpu] : c.active_mapping.thread_map) {
+                    CPU_SET(cpu, &mask);
+                    std::cout << "Enabling cpu " << cpu << " (for thread " << name << ")" << std::endl;
+                }
+            } else {
+                std::cout << "Pinning thread " << t.name << " to cpu " << c.active_mapping.thread_map.at(t.name) << std::endl;
+                CPU_SET(c.active_mapping.thread_map.at(t.name), &mask);
+            }
+
+            sched_setaffinity(t.tid, sizeof(cpu_set_t), &mask);
+        }
+    } catch (std::out_of_range&) {
+        std::cerr << "Unknown client " << fd << std::endl;
     }
 
     bool client_message(int fd)
@@ -247,15 +271,18 @@ class Manager
 
                             std::cout << "New client registered: '" << exec << "' [" << pid << "]" << std::endl;
                             cpu_set_t mask = c.new_thread("@main",c.pid);
-                            sched_setaffinity(c.pid,sizeof(cpu_set_t),&mask);
+                            sched_setaffinity(c.pid, sizeof(cpu_set_t), &mask);
 
                             std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
-                            std::cout << "Client is " << ((c.dynamic_client)?"managed dynamically by CFS.":"mapped statically.") << std::endl;
+                            std::cout << "Client is " << ((c.dynamic_client) ? "managed dynamically by CFS." : "mapped statically.") << std::endl;
 
                             /* We will manage this client. */
                             managed = true;
                         } catch (std::out_of_range&) {
                             std::cout << "Unknown client: '" << exec << "' [" << pid << "]" << std::endl;
+                            managed = false;
+                        } catch (NoMappingError&) {
+                            std::cout << "Couldn't find a proper mapping for client: '" << exec << "' [" << pid << "]" << std::endl;
                             managed = false;
                         }
 
@@ -320,24 +347,21 @@ class Manager
     void print_mappings() {
         std::cout << "Currently active mappings:" << std::endl
                   << "==========================" << std::endl;
-        for (const std::pair<int,const Client&>& c : _clients) {
-            std::cout << "-> Client: " << c.first << std::endl;
-            for (const Client::Thread& t : c.second.threads) {
-                std::deque<int> CPUs;  
-                std::cout << "Thread: (" << t.pid << "," << t.name << ") ";
-                for (int i = 7; i >= 0; i--) { //TODO: This is fixed to 8 cpus!
-                    std::cout << CPU_ISSET(i,&t.affinity);
-                    if (CPU_ISSET(i,&t.affinity)) {
-                        CPUs.push_back(i);
+        for (const auto& [name, client] : _clients) {
+            std::cout << "-> Client: " << name << std::endl;
+
+            for (const auto& t : client.threads) {
+                std::vector<std::string> cpus;
+                std::cout << "Thread: (" << t.tid << "," << t.name << ") ";
+
+                for (int i = num_cpus - 1; i >= 0; i--) {
+                    std::cout << CPU_ISSET(i, &t.affinity);
+                    if (CPU_ISSET(i, &t.affinity)) {
+                        cpus.push_back(std::to_string(i));
                     }
                 }
-                std::cout << " (";
-                while (!CPUs.empty()) {
-                    std::cout << CPUs.front();
-                    CPUs.pop_front();
-                    if (!CPUs.empty()) std::cout << ",";
-                }
-                std::cout << ")" << std::endl;
+
+                std::cout << " (" << string_util::join(cpus, ',') << ")" << std::endl;
             }
         }
         std::cout << "======= END OF LIST =======" << std::endl;
