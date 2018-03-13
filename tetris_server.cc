@@ -35,7 +35,7 @@ class Client
     {
         std::string     name;
         int             pid;
-        cpu_set_t	affinity;
+        cpu_set_t       affinity;
 
         Thread(const std::string& name, int pid, cpu_set_t affinity) :
             name{name}, pid{pid}, affinity{affinity}
@@ -69,6 +69,7 @@ class Client
     {
         cpu_set_t mask;
         CPU_ZERO(&mask);
+
         if (dynamic_client || active_mapping.thread_map.find(name) == active_mapping.thread_map.end()) {
             for (std::pair<std::string,int> p : active_mapping.thread_map) {
                 CPU_SET(p.second,&mask);
@@ -77,15 +78,17 @@ class Client
         } else {
             CPU_SET(active_mapping.thread_map.at(name),&mask);
         }
-        
-        auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) { 
+
+        auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) {
                 return t.name == name;
         });
+
         if (i == threads.end()) {
             threads.emplace_back(name, pid,mask);
         } else {
             std::cerr << "WARNING! Duplicate thread ..." << std::endl;
         }
+
         return mask;
     }
 };
@@ -168,7 +171,7 @@ class Manager
         _clients.erase(fd);
     }
 
-    void remap(int fd , const std::string& preferred_mapping_name) {
+    void remap(int fd, const std::string& preferred_mapping_name) {
         try {
             Client& c = _clients.at(fd);
             for (const auto& m : c.mappings) {
@@ -177,22 +180,24 @@ class Manager
                     break;
                 }
             }
-	    //Remap the threads ...
-	    for (Client::Thread& t : c.threads) {
-	    	std::cout << "Remapping: " << t.name << std::endl;
-	    	cpu_set_t& mask = t.affinity;
-		CPU_ZERO(&mask);
-		if (c.dynamic_client) {
-			for (std::pair<std::string,int> p : c.active_mapping.thread_map) {
-				CPU_SET(p.second,&mask);
-				std::cout << "Enabling cpu " << p.second << " (for " << p.first << ")" << std::endl;
-			}
-		} else {
-			std::cout << "Pinning thread " << t.name << " to cpu " << c.active_mapping.thread_map.at(t.name) << std::endl;
-			CPU_SET(c.active_mapping.thread_map.at(t.name),&mask);
-		}
-		sched_setaffinity(t.pid,sizeof(cpu_set_t),&mask);
-	    }
+
+            //Remap the threads ...
+            for (auto& t : c.threads) {
+                std::cout << "Remapping: " << t.name << std::endl;
+                cpu_set_t& mask = t.affinity;
+                CPU_ZERO(&mask);
+
+                if (c.dynamic_client) {
+                    for (std::pair<std::string,int> p : c.active_mapping.thread_map) {
+                        CPU_SET(p.second, &mask);
+                        std::cout << "Enabling cpu " << p.second << " (for " << p.first << ")" << std::endl;
+                    }
+                } else {
+                    std::cout << "Pinning thread " << t.name << " to cpu " << c.active_mapping.thread_map.at(t.name) << std::endl;
+                    CPU_SET(c.active_mapping.thread_map.at(t.name), &mask);
+                }
+                sched_setaffinity(t.pid,sizeof(cpu_set_t), &mask);
+            }
         } catch (std::out_of_range e) {
             std::cerr << "Unknown client " << fd << std::endl;
         }
@@ -241,10 +246,10 @@ class Manager
                             }
 
                             std::cout << "New client registered: '" << exec << "' [" << pid << "]" << std::endl;
-			    cpu_set_t mask = c.new_thread("@main",c.pid);
-			    sched_setaffinity(c.pid,sizeof(cpu_set_t),&mask);
+                            cpu_set_t mask = c.new_thread("@main",c.pid);
+                            sched_setaffinity(c.pid,sizeof(cpu_set_t),&mask);
 
-			    std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
+                            std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
                             std::cout << "Client is " << ((c.dynamic_client)?"managed dynamically by CFS.":"mapped statically.") << std::endl;
 
                             /* We will manage this client. */
@@ -332,11 +337,10 @@ class Manager
                     CPUs.pop_front();
                     if (!CPUs.empty()) std::cout << ",";
                 }
-    	    	std::cout << ")" << std::endl;
-
-            }           
+                std::cout << ")" << std::endl;
+            }
         }
-    	std::cout << "======= END OF LIST =======" << std::endl;
+        std::cout << "======= END OF LIST =======" << std::endl;
     } 
 
     void update_mappings()
@@ -414,8 +418,8 @@ int main(int argc, char *argv[])
         ctl_fd = ctl_sock.fd();
     } catch (std::runtime_error& e) {
         std::cerr << "Failed to open control socket" << std::endl
-		  << e.what() << std::endl;
-	    return 2;
+          << e.what() << std::endl;
+        return 2;
     }
 
     std::cout << "Server socket initialized at " << server_sock.path() << " ("
@@ -459,7 +463,7 @@ int main(int argc, char *argv[])
         }
 
         epoll_event e;
-        for (auto fd : {sock_fd,ctl_fd, sig_fd}) {
+        for (auto fd : {sock_fd, ctl_fd, sig_fd}) {
             e.data.fd = fd;
             e.events = EPOLLIN;
             if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &e) == -1) {
@@ -522,18 +526,18 @@ int main(int argc, char *argv[])
                         }
                     } else if (cur->data.fd == ctl_fd) {
                         ControlData cd;
-                        Connection(infd,in_sock).read(cd);
+                        Connection(infd, in_sock).read(cd);
                         switch (cd.op) {
                             case ControlData::REMAP_CLIENT:
                                 std::cout << "Remapping client " << cd.remap_data.client_fd
                                           << " to mapping " << cd.remap_data.new_mapping << std::endl;
-                                manager.remap(cd.remap_data.client_fd,string_util::strip(cd.remap_data.new_mapping));
+                                manager.remap(cd.remap_data.client_fd, string_util::strip(cd.remap_data.new_mapping));
                                 break;
                             case ControlData::ERROR:
-                              std::cerr << "An error happend in the control connection." << std::endl;
+                              std::cerr << "An error happened in the control connection." << std::endl;
                               break;
                         }
-		    }
+                    }
                 }
             } else if (cur->data.fd == sig_fd) {
                 /* There was a signal delivered to this process. */
@@ -555,9 +559,9 @@ int main(int argc, char *argv[])
                     if (siginfo.ssi_signo == SIGUSR1) {
                         std::cout << "Refreshing mapping database." << std::endl;
                         manager.update_mappings();
-		    } else if (siginfo.ssi_signo == SIGUSR2) {
-			    std::cout << "Printing mappings ..." << std::endl;
-			manager.print_mappings();
+                    } else if (siginfo.ssi_signo == SIGUSR2) {
+                        std::cout << "Printing mappings ..." << std::endl;
+                        manager.print_mappings();
                     } else {
                         done = 1;
                     }
