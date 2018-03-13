@@ -324,7 +324,6 @@ class Manager
                         TetrisData ack;
                         ack.op = TetrisData::NEW_THREAD_ACK;
                         ack.new_thread_ack_data.managed = managed;
-                        ack.new_thread_ack_data.cpu = -1; //cpu;
 
                         if (conn->write(ack) != Connection::OutState::DONE) {
                             std::cerr << "Failed to acknowledge the new-thread message." << std::endl;

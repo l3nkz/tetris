@@ -50,7 +50,6 @@ struct TetrisData {
         } new_thread_data;
         struct {
             bool managed;
-            int cpu;
         } new_thread_ack_data;
     };
 };

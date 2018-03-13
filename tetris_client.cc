@@ -219,7 +219,6 @@ bool tetris_new_thread(LockedConnection conn, int tid, const char* name)
         return false;
     }
 
-    logger->info("Thread %s should run at %d\n", name, data.new_thread_ack_data.cpu);
     return data.new_thread_ack_data.managed;
 }
 
