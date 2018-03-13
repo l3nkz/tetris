@@ -372,14 +372,18 @@ class Manager
         std::cout << "Update mapping database (" << _mappings_path << ")." << std::endl;
         _mappings.clear();
 
-        path_util::for_each_file(_mappings_path, [&](const std::string& file) -> void {
-            if (path_util::extension(file) == ".csv") {
-                std::string program = string_util::strip(path_util::filename(file));
-                std::cout << " -> found mapping for '" << program << "'" << std::endl;
+        try {
+            path_util::for_each_file(_mappings_path, [&](const std::string& file) -> void {
+                if (path_util::extension(file) == ".csv") {
+                    std::string program = string_util::strip(path_util::filename(file));
+                    std::cout << " -> found mapping for '" << program << "'" << std::endl;
 
-                _mappings.emplace(program, parse_mapping(file));
-            }
-        });
+                    _mappings.emplace(program, parse_mapping(file));
+                }
+            });
+        } catch (std::exception& e) {
+            std::cout << "Reading mappings failed with:" << std::endl << e.what() << std::endl;
+        }
     }
 };
 
