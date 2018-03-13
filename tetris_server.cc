@@ -94,7 +94,7 @@ class Client
         });
 
         if (i == threads.end()) {
-            threads.emplace_back(name, pid,mask);
+            threads.emplace_back(name, pid, mask);
         } else {
             std::cerr << "WARNING! Duplicate thread ..." << std::endl;
         }
@@ -206,22 +206,25 @@ class Manager
 
         for (auto& t : c.threads) {
             std::cout << "Remapping: " << t.name << std::endl;
-            cpu_set_t& mask = t.affinity;
-            CPU_ZERO(&mask);
+
+            cpu_set_t* mask = &t.affinity;
+            CPU_ZERO(mask);
 
             if (c.dynamic_client) {
                 std::cout << "Enabling all cpus for dynamic clients." << std::endl;
 
                 for (auto [name, cpu] : c.active_mapping.thread_map) {
-                    CPU_SET(cpu, &mask);
+                    CPU_SET(cpu, mask);
                     std::cout << "Enabling cpu " << cpu << " (for thread " << name << ")" << std::endl;
                 }
             } else {
                 std::cout << "Pinning thread " << t.name << " to cpu " << c.active_mapping.thread_map.at(t.name) << std::endl;
-                CPU_SET(c.active_mapping.thread_map.at(t.name), &mask);
+                CPU_SET(c.active_mapping.thread_map.at(t.name), mask);
             }
 
-            sched_setaffinity(t.tid, sizeof(cpu_set_t), &mask);
+            if (sched_setaffinity(t.tid, sizeof(cpu_set_t), mask) != 0)
+                std::cerr << "Failed to set cpu affinity for the thread." << std::endl
+                    << strerror(errno) << std::endl;
         }
     } catch (std::out_of_range&) {
         std::cerr << "Unknown client " << fd << std::endl;
@@ -270,8 +273,10 @@ class Manager
                             }
 
                             std::cout << "New client registered: '" << exec << "' [" << pid << "]" << std::endl;
-                            cpu_set_t mask = c.new_thread("@main",c.pid);
-                            sched_setaffinity(c.pid, sizeof(cpu_set_t), &mask);
+                            cpu_set_t mask = c.new_thread("@main", c.pid);
+                            if (sched_setaffinity(c.pid, sizeof(cpu_set_t), &mask) != 0)
+                                std::cerr << "Failed to set cpu affinity for main thread." << std::endl
+                                    << strerror(errno) << std::endl;
 
                             std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
                             std::cout << "Client is " << ((c.dynamic_client) ? "managed dynamically by CFS." : "mapped statically.") << std::endl;
@@ -310,10 +315,10 @@ class Manager
                                 << " registered." << std::endl;
 
                             /* Set the affinity for the thread. */
-                            if (sched_setaffinity(tid, sizeof(cpu_set_t), &mask) != 0) {
+                            if (sched_setaffinity(tid, sizeof(cpu_set_t), &mask) != 0)
                                 std::cerr << "Failed to set cpu affinity for the thread." << std::endl
                                     << strerror(errno) << std::endl;
-                            }
+
                             managed = true;
                         } catch (std::out_of_range) {
                             std::cout << "Unknown thread '" << name << "' for client '" << c.exec << "'" << std::endl;
