@@ -44,15 +44,12 @@ class Mapping
    public:
     std::string     name;
     std::map<std::string, int> thread_map;
-    double          exec_time;
-    double          energy;
-    double          memory;
+    std::map<std::string, double> characteristics_map;
     CPUList         cpus;
 
    private:
     Mapping(const Mapping& base, const CPUList& cpus) :
-        name{base.name}, thread_map{}, exec_time{base.exec_time}, energy{base.energy},
-        memory{base.memory}, cpus{cpus}
+        name{base.name}, thread_map{}, characteristics_map{base.characteristics_map}, cpus{cpus}
     {
         auto conv_map = base.cpus.convert_map(cpus);
 
@@ -65,13 +62,40 @@ class Mapping
     Mapping() = default;
 
     Mapping(const std::string& name, const std::vector<std::pair<std::string, std::string>>& threads,
-            double exec_time, double energy, double memory) :
-        name{name}, thread_map{}, exec_time{exec_time}, energy{energy}, memory{memory}, cpus{}
+            const std::vector<std::pair<std::string, std::string>>& characteristics) :
+        name{name}, thread_map{}, characteristics_map{}, cpus{}
     {
         for (const auto& t : threads) {
             thread_map.emplace(t.first, cpu_nr_for_name(t.second));
             cpus.set(cpu_nr_for_name(t.second));
         }
+
+        for (const auto& c : characteristics) {
+            characteristics_map.emplace(c.first, std::stod(c.second));
+        }
+    }
+
+    cpu_set_t cpu_mask(const std::string& thread) const
+    {
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+
+        if (thread_map.find(thread) != thread_map.end()) {
+            CPU_SET(thread_map.at(thread), &mask);
+        } else {
+            /* If we don't know this thread we will enable all cores of this mapping */
+            mask = cpus.cpu_set();
+        }
+
+        return mask;
+    }
+
+    double characteristic(const std::string& criteria) const
+    {
+        if (characteristics_map.find(criteria) != characteristics_map.end())
+            return characteristics_map.at(criteria);
+
+        throw std::runtime_error("Unknown characteristic criteria");
     }
 
     std::vector<Mapping> equivalent_mappings() const

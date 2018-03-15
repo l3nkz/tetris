@@ -167,14 +167,33 @@ std::atomic_ulong time_ns;
  ***/
 
 static
-bool tetris_new_client(LockedConnection conn, int pid, const char* exec, const char* preferred_mapping, bool dynamic_client) {
+bool tetris_new_client(LockedConnection conn, int pid, const char* exec, bool dynamic_client,
+        const char* compare_criteria, bool compare_more_is_better, const char* preferred_mapping) {
     TetrisData data;
 
     /* Send the new-client message to the server. */
     data.op = TetrisData::NEW_CLIENT;
     data.new_client_data.pid = pid;
-    data.new_client_data.dynamic_client = dynamic_client;
     std::strncpy(data.new_client_data.exec, exec, sizeof(data.new_client_data.exec));
+
+    if (dynamic_client)
+        logger->info("Enable dynamic/CFS mapping.\n");
+    data.new_client_data.dynamic_client = dynamic_client;
+
+    if (compare_criteria) {
+        logger->info("Use given compare criteria -- %s.\n", compare_criteria);
+        std::strncpy(data.new_client_data.compare_criteria, compare_criteria, sizeof(data.new_client_data.compare_criteria));
+    } else {
+        logger->info("Use default compare criteria -- executionTime.\n");
+        std::strncpy(data.new_client_data.compare_criteria, "executionTime", sizeof(data.new_client_data.compare_criteria));
+    }
+
+    if (compare_more_is_better)
+        logger->info("Use greater than comparison for criteria.\n");
+    else
+        logger->info("Use less then comparison for criteria.\n");
+    data.new_client_data.compare_more_is_better = compare_more_is_better;
+
     if (preferred_mapping) {
         data.new_client_data.has_preferred_mapping = true;
         std::strncpy(data.new_client_data.preferred_mapping, preferred_mapping, sizeof(data.new_client_data.preferred_mapping));
@@ -246,15 +265,21 @@ void __attribute__((constructor)) setup(void)
 
         readlink("/proc/self/exe", exec, sizeof(exec));
         int pid = getpid();
-        char *preferred_mapping = getenv("TETRIS_PREFERRED_MAPPING");
+
         bool dynamic_client = false;
-
-        if (getenv("TETRIS_DYNAMIC_MAPPING")) {
-            logger->info("Enabled dynamic/CFS mappings!");
+        if (getenv("TETRIS_DYNAMIC_MAPPING"))
             dynamic_client = true;
-        }
 
-        if (tetris_new_client(connection->locked(), pid, exec, preferred_mapping, dynamic_client)) {
+
+        char *compare_criteria = getenv("TETRIS_COMPARE_CRITERIA");
+        bool compare_more_is_better = false;
+        if (getenv("TETRIS_COMPARE_MORE_IS_BETTER"))
+            compare_more_is_better = true;
+
+        char *preferred_mapping = getenv("TETRIS_PREFERRED_MAPPING");
+
+        if (tetris_new_client(connection->locked(), pid, exec, dynamic_client, compare_criteria,
+                    compare_more_is_better, preferred_mapping)) {
             logger->info("->> Managed by TETRIS <<-\n");
             managed_by_tetris = true;
         } else {

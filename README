@@ -38,13 +38,29 @@ The client reacts to two environment variables.
 With this environmental variable you can control how much information the TETRIS
 client library outputs. Possible values are DEBUG, INFO and ERROR.
 
-#### TETRIS_PREFERRED_MAPPING
-
-This environmental variable can be used to force the server to use one particular
-mapping. The value of this variable should be the name of the preferred mapping.
-
 #### TETRIS_DYNAMIC_MAPPING
 
 This environment variable will tell tetris that no pinning should be used but instead
 the threads should be left movable. Only the list of available CPUs will be limited to
 the ones that the selected mapping contains.
+
+#### TETRIS_COMPARE_CRITERIA
+
+With this environment variable one can choose which characteristic of a mapping should
+be compared when searching for the best possible mapping on the server. This option can
+be changed per application that is executed. If omitted, execution time will be used as
+comparison characteristic.
+
+#### TETRIS_COMPARE_MORE_IS_BETTER
+
+If not set, the tetris server will assume that smaller values for the mapping characteristic
+are better than larger ones. Hence the server will always prefer the mapping for the
+application with the smallest value in the compare characteristic. With this environment
+variable one can change this behavior to more is better.
+
+#### TETRIS_PREFERRED_MAPPING
+
+This environmental variable can be used to force the server to use one particular
+mapping. The value of this variable should be the name of the preferred mapping.
+
+

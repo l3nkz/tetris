@@ -9,6 +9,8 @@
 #include <map>
 #include <vector>
 
+#include <sched.h>
+
 
 class CPUList
 {
@@ -126,6 +128,17 @@ class CPUList
         }
 
         return res;
+    }
+
+    cpu_set_t cpu_set() const
+    {
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+
+        for (auto c : _cpus)
+            CPU_SET(c, &mask);
+
+        return mask;
     }
 };
 

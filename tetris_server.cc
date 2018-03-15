@@ -58,11 +58,15 @@ class Client
     std::vector<Mapping>    mappings;
     Mapping                 active_mapping;
 
+    std::string             criteria;
+    std::function<bool(const double, const double)> comp;
+
    public:
     Client(const Client&) = delete;
 
     Client(const ConnectionPtr& conn) :
-        connection{conn}, exec{}, pid{-1}, dynamic_client{false}, threads{}, mappings{}, active_mapping{}
+        connection{conn}, exec{}, pid{-1}, dynamic_client{false}, threads{}, mappings{}, active_mapping{},
+        criteria{}, comp{std::less<double>{}}
     {
         std::cout << "New client created." << std::endl;
     }
@@ -77,7 +81,7 @@ class Client
         cpu_set_t mask;
         CPU_ZERO(&mask);
 
-        if (dynamic_client || active_mapping.thread_map.find(name) == active_mapping.thread_map.end()) {
+        if (dynamic_client) {
             std::cout << "Enabling all mapping cpus for this client." << std::endl;
 
             for (auto [name, cpu] : active_mapping.thread_map) {
@@ -86,7 +90,7 @@ class Client
                 std::cout << "Enabling cpu " << cpu << "(for thread " << name << ")" << std::endl;
             }
         } else {
-            CPU_SET(active_mapping.thread_map.at(name), &mask);
+            mask = active_mapping.cpu_mask(name);
         }
 
         auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) {
@@ -116,32 +120,32 @@ class Manager
         std::vector<Mapping> result;
 
         for (const auto& row : data.row_iter()) {
-            std::vector<std::pair<std::string, std::string>> thread_map;
+            std::vector<std::pair<std::string, std::string>> threads;
+            std::vector<std::pair<std::string, std::string>> characteristics;
 
-            for (const auto& col : data.columns()) {
+            for (const auto& col : row.names()) {
                 if (string_util::starts_with(col, "t_")) {
                     std::string thread_name = col.substr(2);
                     std::string cpu_name = row(col);
 
-                    thread_map.emplace_back(thread_name, cpu_name);
+                    threads.emplace_back(thread_name, cpu_name);
+                } else {
+                    /* All the other columns are characteristics of the mapping */
+                    std::string value = row(col);
+
+                    characteristics.emplace_back(col, value);
                 }
             }
 
             auto name = row.fixed();
-            auto exec_time = std::stod(row("executionTime"));
-            auto energy = std::stod(row("energyConsumption"));
-            auto memory = std::stod(row("memorySize"));
 
-            result.emplace_back(name, thread_map, exec_time, energy, memory);
+            result.emplace_back(name, threads, characteristics);
         }
 
         return result;
     }
 
-    template <typename Criteria = std::function<double(const Mapping&)>, typename Comp = std::function<bool(double, double)>>
-    Mapping select_best_mapping(Client& c,
-            Criteria criteria = [] (const Mapping& m) { return m.exec_time; },
-            Comp better = [] (double a, double b) { return a < b; })
+    Mapping select_best_mapping(Client& c)
     {
         CPUList occupied_cpus;
 
@@ -156,9 +160,13 @@ class Manager
 
         /* Now select the best one of the available ones according to the given
          * criteria and the given comperator */
+        auto comp = [&c] (const Mapping& first, const Mapping& second) -> bool {
+            return c.comp(first.characteristic(c.criteria), second.characteristic(c.criteria));
+        };
+
         auto best = possible_mappings.front();
         for (const auto& m : possible_mappings) {
-            if (better(criteria(m), criteria(best)))
+            if (comp(m, best))
                 best = m;
         }
 
@@ -264,6 +272,10 @@ class Manager
                             c.exec = exec;
                             c.dynamic_client = message.new_client_data.dynamic_client;
                             c.mappings = _mappings.at(exec);
+
+                            c.criteria = string_util::strip(message.new_client_data.compare_criteria);
+                            if (message.new_client_data.compare_more_is_better)
+                                c.comp = std::greater<bool>{};
 
                             if (message.new_client_data.has_preferred_mapping) {
                                 std::string preferred_mapping = string_util::strip(message.new_client_data.preferred_mapping);
