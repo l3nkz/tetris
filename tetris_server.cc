@@ -147,10 +147,10 @@ class Manager
 
     Mapping select_best_mapping(Client& c)
     {
-        CPUList occupied_cpus;
+        CPUList occupied_cpus{};
 
         for (const auto& [name, cl] : _clients) {
-            occupied_cpus += cl.active_mapping.cpus;
+            occupied_cpus |= cl.active_mapping.cpus;
         }
 
         /* Get all the tetris mappings for this client */

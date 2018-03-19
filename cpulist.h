@@ -15,33 +15,31 @@
 class CPUList
 {
    private:
-    std::vector<int>    _cpus;
+    cpu_set_t    _cpus;
 
    public:
-    CPUList() :
-        _cpus{}
-    {}
+    CPUList()
+    {
+        CPU_ZERO(&_cpus);
+    }
 
     CPUList(const std::vector<int>& cpus) :
-        _cpus{cpus}
-    {}
+        CPUList{}
+    {
+        for (const auto c : cpus)
+            CPU_SET(c, &_cpus);
+    }
 
     CPUList(const std::initializer_list<int>& cpus) :
-        _cpus{cpus}
-    {}
+        CPUList{}
+    {
+        for (const auto c : cpus)
+            CPU_SET(c, &_cpus);
+    }
 
     bool operator==(const CPUList& o) const
     {
-        if (_cpus.size() != o._cpus.size()) {
-            return false;
-        } else {
-            for (auto i1 = _cpus.begin(), i2 = o._cpus.begin(); i1 != _cpus.end(); ++i1, ++i2) {
-                if (*i1 != *i2)
-                    return false;
-            }
-        }
-
-        return true;
+        return CPU_EQUAL(&_cpus, &o._cpus);
     }
 
     bool operator!=(const CPUList& o) const
@@ -49,96 +47,65 @@ class CPUList
         return !(*this == o);
     }
 
-    CPUList operator+(const CPUList& o) const
+    CPUList operator&(const CPUList& o) const
     {
-        CPUList tmp{*this};
-        tmp.unite(o);
+        CPUList tmp{};
+
+        CPU_AND(&tmp._cpus, &_cpus, &o._cpus);
 
         return tmp;
     }
 
-    CPUList& operator+=(const CPUList& o)
+    CPUList& operator&=(const CPUList& o)
     {
-        unite(o);
+        CPU_AND(&_cpus, &_cpus, &o._cpus);
+
         return *this;
     }
 
-    CPUList operator-(const CPUList& o) const
+    CPUList operator|(const CPUList& o) const
     {
-        CPUList tmp{*this};
-        tmp.intersect(o);
+        CPUList tmp{};
+
+        CPU_OR(&tmp._cpus, &_cpus, &o._cpus);
 
         return tmp;
     }
 
-    CPUList operator-=(const CPUList& o)
+    CPUList operator|=(const CPUList& o)
     {
-        intersect(o);
+        CPU_OR(&_cpus, &_cpus, &o._cpus);
 
         return *this;
     }
 
     void set(int cpu_nr)
     {
-        if (std::find(_cpus.begin(), _cpus.end(), cpu_nr) != _cpus.end())
-            _cpus.push_back(cpu_nr);
+        CPU_SET(cpu_nr, &_cpus);
     }
 
     void clear(int cpu_nr)
     {
-        auto i = std::find(_cpus.begin(), _cpus.end(), cpu_nr);
-
-        if (i != _cpus.end())
-            _cpus.erase(i);
-    }
-
-    void unite(const CPUList& o)
-    {
-        for (auto c : o._cpus) {
-            set(c);
-        }
-    }
-
-    void intersect(const CPUList& o)
-    {
-        for (auto c : o._cpus) {
-            clear(c);
-        }
+        CPU_CLR(cpu_nr, &_cpus);
     }
 
     bool overlaps_with(const CPUList& o) const
     {
-        for (auto c : _cpus) {
-            if (std::find(o._cpus.begin(), o._cpus.end(), c) != o._cpus.end())
-                return true;
-        }
+        cpu_set_t tmp;
 
-        return false;
+        CPU_AND(&tmp, &_cpus, &o._cpus);
+
+        return CPU_COUNT(&tmp) != 0;
     }
 
-    std::map<int,int> convert_map(const CPUList& to) const
+    int cpus() const
     {
-        std::map<int, int> res;
-
-        for (auto i1 = _cpus.begin(), i2 = to._cpus.begin(); i1 != _cpus.end(); ++i1, ++i2) {
-            if (i2 != to._cpus.end())
-                res.emplace(*i1, *i2);
-            else
-                res.emplace(*i1, 0);
-        }
-
-        return res;
+        return CPU_COUNT(&_cpus);
     }
 
     cpu_set_t cpu_set() const
     {
-        cpu_set_t mask;
-        CPU_ZERO(&mask);
-
-        for (auto c : _cpus)
-            CPU_SET(c, &mask);
-
-        return mask;
+        return _cpus;
     }
 };
 

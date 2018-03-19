@@ -6,6 +6,7 @@
 
 #include "cpulist.h"
 #include "config.h"
+#include "equivalence.h"
 
 
 #include <map>
@@ -26,16 +27,6 @@ int cpu_nr_for_name(const std::string& name)
         return 0;
 }
 
-std::vector<CPUList> cpulists_equivalent_to(const CPUList& cpus)
-{
-    for (auto& equiv_list : equivalent_cpus) {
-        if (std::find(equiv_list.begin(), equiv_list.end(), cpus) != equiv_list.end())
-            return equiv_list;
-    }
-
-    throw std::runtime_error{"Can't find given cpu list in equivalent_cpus list."};
-}
-
 } /* Anonymous namespace */
 
 
@@ -48,13 +39,14 @@ class Mapping
     CPUList         cpus;
 
    private:
-    Mapping(const Mapping& base, const CPUList& cpus) :
+    Mapping(const Mapping& base, const std::map<int, int>& conv_map) :
         name{base.name}, thread_map{}, characteristics_map{base.characteristics_map}, cpus{cpus}
     {
-        auto conv_map = base.cpus.convert_map(cpus);
-
-        for (const auto& t : base.thread_map) {
-            thread_map.emplace(t.first, conv_map[t.second]);
+        for (const auto& [name, orig_cpu] : base.thread_map) {
+            if (conv_map.find(orig_cpu) != conv_map.end())
+                thread_map.emplace(name, conv_map.at(orig_cpu));
+            else
+                thread_map.emplace(name, orig_cpu);
         }
     }
 
@@ -100,13 +92,20 @@ class Mapping
 
     std::vector<Mapping> equivalent_mappings() const
     {
-        std::vector<Mapping> result;
 
-        for (const auto& cpulist : cpulists_equivalent_to(cpus)) {
-            result.push_back(Mapping{*this, cpulist});
+        for (const auto& equiv : equivalences)  {
+            if (equiv.is_in_equalence_class(cpus)) {
+                std::vector<Mapping> result;
+
+                for (const auto& conv_map : equiv.equivalent_mappings(cpus)) {
+                    result.push_back(Mapping{*this, conv_map});
+                }
+
+                return result;
+            }
         }
 
-        return result;
+        throw std::runtime_error{"Can't determine the mapping's equivalence class."};
     }
 };
 

@@ -18,7 +18,7 @@ add_library(tetrisclient SHARED tetris_client.cc)
 target_link_libraries(tetrisclient Threads::Threads ${CMAKE_DL_LIBS})
 
 # tetris server binary
-add_executable(tetrisserver tetris_server.cc algorithm.cc)
+add_executable(tetrisserver tetris_server.cc algorithm.cc equivalence.cc)
 
 # tetris control binary
 add_executable(tetrisctl tetris_ctl.cc)
