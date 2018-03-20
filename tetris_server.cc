@@ -73,6 +73,11 @@ class Client
         {
             return _comp(other.characteristic(_criteria), best.characteristic(_criteria));
         }
+
+        std::string criteria() const
+        {
+            return _criteria;
+        }
     };
 
    public:
@@ -183,22 +188,31 @@ class Manager
         auto possible_mappings = tetris_mappings(c.mappings, occupied_cpus);
         if (possible_mappings.empty())
             throw NoMappingError("Can't find a proper mapping for the client");
+        else
+            std::cout << "There are " << possible_mappings.size() << " mappings for this client." << std::endl;
 
         /* Now select the best one of the available ones according to the given
          * criteria and the given comperator */
         auto comp = [&c] (const Mapping& first, const Mapping& second) -> bool {
             return c.comp(first, second);
         };
-
         auto filter = [&c] (const Mapping& m) -> bool {
             return c.filter(m);
         };
 
         auto best = possible_mappings.front();
         for (const auto& m : possible_mappings) {
-            if (comp(m, best) && filter(m))
+            if (comp(m, best) && filter(m)) {
+                std::cout << "Found better mapping: " << m.name << " (" << m.characteristic(c.comp.criteria())
+                    << ") is better than " << best.name << " (" << best.characteristic(c.comp.criteria()) << ")"
+                    << std::endl;
                 best = m;
+            }
         }
+
+        std::cout << "The best mapping is: " << best.name << " (" << best.characteristic(c.comp.criteria()) << ")"
+            << " [equiv: " << best.equivalence_class().name() << "]"
+            << " with CPUs " << string_util::join(best.cpus.cpulist(num_cpus), ",") << std::endl;
 
         return best;
     }
@@ -409,7 +423,7 @@ class Manager
                     }
                 }
 
-                std::cout << " (" << string_util::join(cpus, ',') << ")" << std::endl;
+                std::cout << " [" << string_util::join(cpus, ',') << "]" << std::endl;
             }
         }
         std::cout << "======= END OF LIST =======" << std::endl;

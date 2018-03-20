@@ -108,7 +108,17 @@ class Mapping
             }
         }
 
-        throw std::runtime_error{"Can't determine the mapping's equivalence class."};
+        throw std::runtime_error("Can't determine the mapping's equivalence class.");
+    }
+
+    const Equivalence& equivalence_class() const
+    {
+        for (const auto& equiv : equivalences) {
+            if (equiv.is_in_equalence_class(cpus))
+                return equiv;
+        }
+
+        throw std::runtime_error("Can't determine the mapping's equivalence class.");
     }
 };
 

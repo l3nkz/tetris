@@ -107,6 +107,17 @@ class CPUList
     {
         return _cpus;
     }
+
+    std::vector<int> cpulist(int max_cpus) const
+    {
+        std::vector<int> result;
+
+        for (int i = 0; i < max_cpus; ++i)
+            if (CPU_ISSET(i, &_cpus))
+                result.push_back(i);
+
+        return result;
+    }
 };
 
 #endif /* __CPULIST_H__ */
