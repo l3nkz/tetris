@@ -58,6 +58,25 @@ are better than larger ones. Hence the server will always prefer the mapping for
 application with the smallest value in the compare characteristic. With this environment
 variable one can change this behavior to more is better.
 
+#### TETRIS_FILTER_CRITERIA
+
+With this environment variable you can influence which mappings available for the tetris server
+are actually considered for the application. Hence, one can filter out mappings that don't match
+the given criteria. The syntax to define the filter is as follows:
+
+    {mapping characteristic}{compare operator}{value}
+
+Valid examples can look like the following:
+
+    energyConsumption<2000          or
+    totalExecutionTime<=100
+
+Spaces at the beginning, end and around the compare operator are striped away. Currently supported
+compare operators are: '<', '<=', '>', '>=', '==', '=', '!='
+
+The given filter criteria is a positive criteria. This means, that only mappings that fulfill this
+criteria are considered for the application.
+
 #### TETRIS_PREFERRED_MAPPING
 
 This environmental variable can be used to force the server to use one particular

@@ -168,7 +168,8 @@ std::atomic_ulong time_ns;
 
 static
 bool tetris_new_client(LockedConnection conn, int pid, const char* exec, bool dynamic_client,
-        const char* compare_criteria, bool compare_more_is_better, const char* preferred_mapping) {
+        const char* compare_criteria, bool compare_more_is_better, const char* preferred_mapping,
+        const char* filter_criteria) {
     TetrisData data;
 
     /* Send the new-client message to the server. */
@@ -199,6 +200,13 @@ bool tetris_new_client(LockedConnection conn, int pid, const char* exec, bool dy
         std::strncpy(data.new_client_data.preferred_mapping, preferred_mapping, sizeof(data.new_client_data.preferred_mapping));
     } else {
         data.new_client_data.has_preferred_mapping = false;
+    }
+
+    if (filter_criteria) {
+        data.new_client_data.has_filter_criteria = true;
+        std::strncpy(data.new_client_data.filter_criteria, filter_criteria, sizeof(data.new_client_data.filter_criteria));
+    } else {
+        data.new_client_data.has_filter_criteria = false;
     }
 
     if (conn->write(data) != Connection::OutState::DONE) {
@@ -278,8 +286,10 @@ void __attribute__((constructor)) setup(void)
 
         char *preferred_mapping = getenv("TETRIS_PREFERRED_MAPPING");
 
+        char *filter_criteria = getenv("TETRIS_FILTER_CRITERIA");
+
         if (tetris_new_client(connection->locked(), pid, exec, dynamic_client, compare_criteria,
-                    compare_more_is_better, preferred_mapping)) {
+                    compare_more_is_better, preferred_mapping, filter_criteria)) {
             logger->info("->> Managed by TETRIS <<-\n");
             managed_by_tetris = true;
         } else {

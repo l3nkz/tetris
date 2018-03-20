@@ -42,6 +42,8 @@ struct TetrisData {
             bool compare_more_is_better;
             bool has_preferred_mapping;
             char preferred_mapping[25];
+            bool has_filter_criteria;
+            char filter_criteria[50];
         } new_client_data;
         struct {
             bool managed;

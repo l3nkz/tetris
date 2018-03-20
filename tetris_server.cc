@@ -1,6 +1,7 @@
 #include "algorithm.h"
 #include "connection.h"
 #include "csv.h"
+#include "filter.h"
 #include "mapping.h"
 #include "path_util.h"
 #include "socket.h"
@@ -49,6 +50,31 @@ class Client
         {}
     };
 
+    class Comp
+    {
+        std::string     _criteria;
+        std::function<bool(const double, const double)> _comp;
+
+       public:
+        Comp(const std::string compare_criteria, bool more_is_better) :
+            _criteria{compare_criteria}
+        {
+            if (more_is_better)
+                _comp = std::greater<double>();
+            else
+                _comp = std::less<double>();
+        }
+
+        Comp() :
+            _criteria{}, _comp{std::less<double>()}
+        {}
+
+        bool operator()(const Mapping& other, const Mapping& best)
+        {
+            return _comp(other.characteristic(_criteria), best.characteristic(_criteria));
+        }
+    };
+
    public:
     ConnectionPtr           connection;
     std::string             exec;
@@ -58,15 +84,15 @@ class Client
     std::vector<Mapping>    mappings;
     Mapping                 active_mapping;
 
-    std::string             criteria;
-    std::function<bool(const double, const double)> comp;
+    Filter                  filter;
+    Comp                    comp;
 
    public:
     Client(const Client&) = delete;
 
     Client(const ConnectionPtr& conn) :
         connection{conn}, exec{}, pid{-1}, dynamic_client{false}, threads{}, mappings{}, active_mapping{},
-        criteria{}, comp{std::less<double>{}}
+        filter{}, comp{}
     {
         std::cout << "New client created." << std::endl;
     }
@@ -161,12 +187,16 @@ class Manager
         /* Now select the best one of the available ones according to the given
          * criteria and the given comperator */
         auto comp = [&c] (const Mapping& first, const Mapping& second) -> bool {
-            return c.comp(first.characteristic(c.criteria), second.characteristic(c.criteria));
+            return c.comp(first, second);
+        };
+
+        auto filter = [&c] (const Mapping& m) -> bool {
+            return c.filter(m);
         };
 
         auto best = possible_mappings.front();
         for (const auto& m : possible_mappings) {
-            if (comp(m, best))
+            if (comp(m, best) && filter(m))
                 best = m;
         }
 
@@ -273,9 +303,11 @@ class Manager
                             c.dynamic_client = message.new_client_data.dynamic_client;
                             c.mappings = _mappings.at(exec);
 
-                            c.criteria = string_util::strip(message.new_client_data.compare_criteria);
-                            if (message.new_client_data.compare_more_is_better)
-                                c.comp = std::greater<bool>{};
+                            c.comp = Client::Comp(string_util::strip(message.new_client_data.compare_criteria),
+                                    message.new_client_data.compare_more_is_better);
+
+                            if (message.new_client_data.has_filter_criteria)
+                                c.filter = Filter(message.new_client_data.filter_criteria);
 
                             if (message.new_client_data.has_preferred_mapping) {
                                 std::string preferred_mapping = string_util::strip(message.new_client_data.preferred_mapping);
