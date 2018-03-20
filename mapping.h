@@ -40,13 +40,16 @@ class Mapping
 
    private:
     Mapping(const Mapping& base, const std::map<int, int>& conv_map) :
-        name{base.name}, thread_map{}, characteristics_map{base.characteristics_map}, cpus{cpus}
+        name{base.name}, thread_map{}, characteristics_map{base.characteristics_map}, cpus{}
     {
         for (const auto& [name, orig_cpu] : base.thread_map) {
-            if (conv_map.find(orig_cpu) != conv_map.end())
+            if (conv_map.find(orig_cpu) != conv_map.end()) {
                 thread_map.emplace(name, conv_map.at(orig_cpu));
-            else
+                cpus.set(conv_map.at(orig_cpu));
+            } else {
                 thread_map.emplace(name, orig_cpu);
+                cpus.set(orig_cpu);
+            }
         }
     }
 
