@@ -5,6 +5,7 @@
 
 
 #include <cctype>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -13,11 +14,14 @@ namespace string_util {
 
 /* Prototypes */
 bool ends_with(const std::string&, const std::string&);
-template <template<typename> class Container>
-std::string join(const Container<std::string>&, char delim=' ');
+template <template<typename> class Container, typename T>
+std::string join(const Container<T>&, const std::string&);
+template <template<typename> class Container, typename T>
+std::string join(const Container<T>&, const char delim=' ');
 std::string lstrip(const std::string&);
 std::string rstrip(const std::string&);
 std::vector<std::string> split(const std::string&, char delim=' ');
+std::vector<std::string> split(const std::string&, const std::string&);
 bool starts_with(const std::string&, const std::string&);
 std::string strip(const std::string&);
 
@@ -35,8 +39,14 @@ bool ends_with(const std::string& s, const std::string& end)
     return true;
 }
 
+template <template<typename> class Container, typename T>
+std::string join(const Container<T>& subs, const char delim)
+{
+    return join(subs, std::string{delim});
+}
+
 template <template<typename> class Container>
-std::string join(const Container<std::string>& subs, char delim)
+std::string join(const Container<std::string>& subs, const std::string& delim)
 {
     if (subs.size() == 0) {
         return {};
@@ -47,10 +57,25 @@ std::string join(const Container<std::string>& subs, char delim)
         }
 
         /* Remove the last 'delim' again. */
-        result.pop_back();
+        result.erase(result.size() - delim.size());
 
         return result;
     }
+}
+
+template <template<typename> class Container, typename T>
+std::string join(const Container<T>& subs, const std::string& delim)
+{
+    std::vector<std::string> string_subs;
+
+    for (const auto& s : subs) {
+        std::stringstream ss;
+        ss << s;
+
+        string_subs.push_back(ss.str());
+    }
+
+    return join(string_subs, delim);
 }
 
 std::string lstrip(const std::string& s)
@@ -93,7 +118,12 @@ std::string rstrip(const std::string& s)
     return result;
 }
 
-std::vector<std::string> split(const std::string& s, char delim)
+std::vector<std::string> split(const std::string& s, const char delim)
+{
+    return split(s, std::string{delim});
+}
+
+std::vector<std::string> split(const std::string& s, const std::string& delim)
 {
     std::vector<std::string> subs;
     size_t dpos = 0, oldpos = 0;
@@ -106,7 +136,7 @@ std::vector<std::string> split(const std::string& s, char delim)
         else
             subs.push_back(s.substr(oldpos, dpos-oldpos));
 
-        oldpos = dpos + 1;
+        oldpos = dpos + delim.size();
     }
 
     return subs;
