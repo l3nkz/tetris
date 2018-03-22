@@ -14,11 +14,11 @@ set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 find_package(Threads REQUIRED)
 
 # libtetris client version
-add_library(tetrisclient SHARED tetris_client.cc)
+add_library(tetrisclient SHARED tetris_client.cc debug_util.cc)
 target_link_libraries(tetrisclient Threads::Threads ${CMAKE_DL_LIBS})
 
 # tetris server binary
-add_executable(tetrisserver tetris_server.cc algorithm.cc equivalence.cc)
+add_executable(tetrisserver tetris_server.cc algorithm.cc equivalence.cc debug_util.cc)
 
 # tetris control binary
 add_executable(tetrisctl tetris_ctl.cc)

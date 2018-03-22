@@ -4,60 +4,96 @@
 #pragma once
 
 
+#include "debug_util.h"
 #include "string_util.h"
 #include "mapping.h"
 
 #include <functional>
-#include <iostream>
+#include <sstream>
 #include <string>
 
 
 namespace detail {
 
-struct FilterComp
+class FilterComp
 {
+   public:
     virtual ~FilterComp() = default;
 
-    virtual bool comp(const double lhs, const double rhs) = 0;
-    virtual FilterComp* clone() = 0;
+    virtual bool comp(const Mapping& map) const = 0;
+    virtual FilterComp* clone() const = 0;
+
+    virtual std::string repr() const = 0;
 };
 
 template <typename BaseComp>
-struct StdComp : public FilterComp
-{
-    bool comp(const double lhs, const double rhs)
-    {
-        return BaseComp{}(lhs, rhs);
-    }
-
-    FilterComp* clone()
-    {
-        return new StdComp<BaseComp>;
-    }
-};
-
-struct NoComp : public FilterComp
-{
-    bool comp(const double, const double)
-    {
-        return true;
-    }
-
-    FilterComp* clone()
-    {
-        return new NoComp;
-    }
-};
-
-} /* anonymous namespace */
-
-
-class Filter
+class StdComp : public FilterComp
 {
    private:
     std::string     _criteria;
     double          _value;
 
+    BaseComp        _comp;
+
+   public:
+    StdComp(const std::string& criteria, const double value) :
+        _criteria{criteria}, _value{value}, _comp{}
+    {}
+
+    bool comp(const Mapping& map) const
+    {
+        return _comp(map.characteristic(_criteria), _value);
+    }
+
+    FilterComp* clone() const
+    {
+        return new StdComp<BaseComp>(_criteria, _value);
+    }
+
+    std::string repr() const
+    {
+        std::stringstream ss;
+
+        ss << _criteria << debug::CompRepr<BaseComp>::repr << _value;
+        return ss.str();
+    }
+};
+
+struct NoComp : public FilterComp
+{
+    bool comp(const Mapping&) const
+    {
+        return true;
+    }
+
+    FilterComp* clone() const
+    {
+        return new NoComp;
+    }
+
+    std::string repr() const
+    {
+        return "none";
+    }
+};
+
+enum Type : int {
+    GREATER,
+    GREATER_EQUAL,
+    LESS,
+    LESS_EQUAL,
+    EQUAL,
+    NOT_EQUAL,
+    NONE,
+    ERROR
+};
+
+} /* namespace detail*/
+
+
+class Filter
+{
+   private:
     detail::FilterComp*     _comp;
 
     void set_comperator(detail::FilterComp* comp)
@@ -84,7 +120,7 @@ class Filter
          *      !=
          *
          * Search for one of them in the given string */
-        bool valid = false;
+        detail::Type type = detail::Type::ERROR;
         std::string criteria, value;
 
         for (size_t i = 1; i < filter_criteria.size(); ++i) {
@@ -93,31 +129,29 @@ class Filter
                     criteria = filter_criteria.substr(0, i-1);
 
                     if (filter_criteria[i] == '=') {
-                        set_comperator(new detail::StdComp<std::greater_equal<double>>);
+                        type = detail::Type::GREATER_EQUAL;
                         value = filter_criteria.substr(i+1);
                     } else {
-                        set_comperator(new detail::StdComp<std::greater<double>>);
+                        type = detail::Type::GREATER;
                         value = filter_criteria.substr(i);
                     }
 
-                    valid = true;
                     break;
                 case '<':
                     criteria = filter_criteria.substr(0, i-1);
 
                     if (filter_criteria[i] == '=') {
-                        set_comperator(new detail::StdComp<std::less_equal<double>>);
+                        type = detail::Type::LESS_EQUAL;
                         value = filter_criteria.substr(i+1);
                     } else {
-                        set_comperator(new detail::StdComp<std::less<double>>);
+                        type = detail::Type::LESS;
                         value = filter_criteria.substr(i);
                     }
 
-                    valid = true;
                     break;
                 case '=':
                     criteria = filter_criteria.substr(0, i-1);
-                    set_comperator(new detail::StdComp<std::equal_to<double>>);
+                    type = detail::Type::EQUAL;
 
                     if (filter_criteria[i] == '=') {
                         value = filter_criteria.substr(i+1);
@@ -125,30 +159,48 @@ class Filter
                         value = filter_criteria.substr(i);
                     }
 
-                    valid = true;
                     break;
                 case '!':
                     if (filter_criteria[i] == '=') {
+                        type = detail::Type::NOT_EQUAL;
                         value = filter_criteria.substr(i+1);
                         criteria = filter_criteria.substr(0, i-1);
-                        set_comperator(new detail::StdComp<std::not_equal_to<double>>);
-
-                        valid = true;
                     }
 
                     break;
             }
 
-            if (valid)
+            if (type != detail::Type::ERROR)
                 break;
         }
 
-        if (valid) {
-            _criteria = string_util::strip(criteria);
-            _value = std::stod(string_util::strip(value));
-        } else {
-            std::cerr << "Failed to parse filter string -- use no filter" << std::endl;
-            set_comperator(new detail::NoComp);
+        switch (type) {
+            case detail::Type::GREATER:
+                set_comperator(new detail::StdComp<std::greater<double>>(string_util::strip(criteria),
+                            std::stod(string_util::strip(value))));
+                break;
+            case detail::Type::GREATER_EQUAL:
+                set_comperator(new detail::StdComp<std::greater_equal<double>>(string_util::strip(criteria),
+                            std::stod(string_util::strip(value))));
+                break;
+            case detail::Type::LESS:
+                set_comperator(new detail::StdComp<std::less<double>>(string_util::strip(criteria),
+                            std::stod(string_util::strip(value))));
+                break;
+            case detail::Type::LESS_EQUAL:
+                set_comperator(new detail::StdComp<std::less_equal<double>>(string_util::strip(criteria),
+                            std::stod(string_util::strip(value))));
+                break;
+            case detail::Type::EQUAL:
+                set_comperator(new detail::StdComp<std::equal_to<double>>(string_util::strip(criteria),
+                            std::stod(string_util::strip(value))));
+                break;
+            case detail::Type::NOT_EQUAL:
+                set_comperator(new detail::StdComp<std::not_equal_to<double>>(string_util::strip(criteria),
+                            std::stod(string_util::strip(value))));
+                break;
+            default:
+                set_comperator(new detail::NoComp);
         }
     }
 
@@ -157,11 +209,11 @@ class Filter
     {}
 
     Filter(const Filter& o) :
-        _criteria{o._criteria}, _value{o._value}, _comp{o._comp->clone()}
+        _comp{o._comp->clone()}
     {}
 
     Filter(Filter&& o) :
-        _criteria{std::move(o._criteria)}, _value{std::move(o._value)}, _comp{o._comp}
+        _comp{o._comp}
     {
         o._comp = nullptr;
     }
@@ -174,8 +226,6 @@ class Filter
 
     Filter& operator=(const Filter& o)
     {
-        _criteria = o._criteria;
-        _value = o._value;
         set_comperator(o._comp->clone());
 
         return *this;
@@ -183,8 +233,6 @@ class Filter
 
     Filter& operator=(Filter&& o)
     {
-        _criteria = std::move(o._criteria);
-        _value = std::move(o._value);
         set_comperator(o._comp);
 
         o._comp = nullptr;
@@ -192,9 +240,14 @@ class Filter
         return *this;
     }
 
-    bool operator()(const Mapping& map)
+    std::string repr() const
+    {
+        return _comp->repr();
+    }
+
+    bool operator()(const Mapping& map) const
     try {
-        return _comp->comp(_value, map.characteristic(_criteria));
+        return _comp->comp(map);
     } catch (std::runtime_error&) {
         return false;
     }

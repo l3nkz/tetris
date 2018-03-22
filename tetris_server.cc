@@ -1,6 +1,7 @@
 #include "algorithm.h"
 #include "connection.h"
 #include "csv.h"
+#include "debug_util.h"
 #include "filter.h"
 #include "mapping.h"
 #include "path_util.h"
@@ -14,6 +15,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -26,7 +28,20 @@
 #include <sys/socket.h>
 
 
+
+/***
+ * Global variables
+ ***/
+
+using ConnectionPtr = std::shared_ptr<Connection>;
+
 const static int MAXEVENTS = 100;
+debug::LoggerPtr logger;
+
+
+/***
+ * Failure handling for no mapping found
+ ***/
 
 class NoMappingError : public std::runtime_error
 {
@@ -34,7 +49,10 @@ class NoMappingError : public std::runtime_error
     using std::runtime_error::runtime_error;
 };
 
-using ConnectionPtr = std::shared_ptr<Connection>;
+
+/***
+ * Client Program
+ ***/
 
 class Client
 {
@@ -43,26 +61,28 @@ class Client
     {
         std::string     name;
         int             tid;
-        cpu_set_t       affinity;
+        CPUList         cpus;
 
-        Thread(const std::string& name, int tid, cpu_set_t affinity) :
-            name{name}, tid{tid}, affinity{affinity}
+        Thread(const std::string& name, int tid, CPUList cpus) :
+            name{name}, tid{tid}, cpus{cpus}
         {}
     };
 
     class Comp
     {
+       private:
         std::string     _criteria;
+        bool            _more_is_better;
         std::function<bool(const double, const double)> _comp;
 
        public:
-        Comp(const std::string compare_criteria, bool more_is_better) :
-            _criteria{compare_criteria}
+        Comp(const std::string compare_criteria, bool compare_more_is_better) :
+            _criteria{compare_criteria}, _more_is_better{compare_more_is_better}
         {
-            if (more_is_better)
-                _comp = std::greater<double>();
+            if (_more_is_better)
+                _comp = std::greater<double>{};
             else
-                _comp = std::less<double>();
+                _comp = std::less<double>{};
         }
 
         Comp() :
@@ -77,6 +97,14 @@ class Client
         std::string criteria() const
         {
             return _criteria;
+        }
+
+        std::string repr() const
+        {
+            std::stringstream ss;
+            ss << _criteria << "(" << (_more_is_better ? ">" : "<") << ")";
+
+            return ss.str();
         }
     };
 
@@ -99,44 +127,75 @@ class Client
         connection{conn}, exec{}, pid{-1}, dynamic_client{false}, threads{}, mappings{}, active_mapping{},
         filter{}, comp{}
     {
-        std::cout << "New client created." << std::endl;
+        logger->info("New client created\n");
     }
 
     ~Client()
     {
-        std::cout << "Client removed." << std::endl;
+        logger->info("Client removed\n");
     }
 
-    cpu_set_t new_thread(const std::string& name, int pid)
+    CPUList cpus() const
     {
-        cpu_set_t mask;
-        CPU_ZERO(&mask);
+        return active_mapping.cpus;
+    }
 
+    void update_mapping(const Mapping& new_mapping)
+    {
+        if (new_mapping.name == active_mapping.name)
+            return;
+
+        logger->info("Change mapping for client '%s' [%i] to %s\n", exec.c_str(), pid, new_mapping.name.c_str());
+        active_mapping = new_mapping;
+
+        for (auto& t : threads) {
+            CPUList cpus;
+            if (dynamic_client)
+                cpus = active_mapping.cpus;
+            else
+                cpus = active_mapping.cpu(t.name);
+
+            logger->debug(" * remap thread '%s' [%i] from cpu(s) %s to cpu(s) %s\n", t.name.c_str(), t.tid,
+                    string_util::join(t.cpus.cpulist(num_cpus), ","),
+                    string_util::join(cpus.cpulist(num_cpus), ","));
+
+            t.cpus = cpus;
+
+            cpu_set_t mask = cpus.cpu_set();
+            if (sched_setaffinity(t.tid, sizeof(cpu_set_t), &mask) != 0)
+                logger->warning("Failed to set cpu affinity for thread '%s': %s\n", t.name.c_str(), strerror(errno));
+        }
+    }
+
+    void new_thread(const std::string& name, int pid)
+    {
+        logger->info("New thread '%s' [%i] registered for client '%s'\n", name.c_str(), pid, exec.c_str());
+
+        CPUList cpus;
         if (dynamic_client) {
-            std::cout << "Enabling all mapping cpus for this client." << std::endl;
-
-            for (auto [name, cpu] : active_mapping.thread_map) {
-                CPU_SET(cpu, &mask);
-
-                std::cout << "Enabling cpu " << cpu << "(for thread " << name << ")" << std::endl;
-            }
+            cpus = active_mapping.cpus;
+            logger->debug(" * enabled cpu(s) %s (dynamic client)\n", string_util::join(cpus.cpulist(num_cpus), ","));
         } else {
-            mask = active_mapping.cpu_mask(name);
+            cpus = active_mapping.cpu(name);
+            logger->debug(" * enabled cpu(s) %s\n", string_util::join(cpus.cpulist(num_cpus), ","));
         }
 
-        auto i = std::find_if(threads.begin(), threads.end(), [&](const Thread& t) {
-                return t.name == name;
-        });
+        auto it = std::find_if(threads.begin(), threads.end(), [&](const auto& t) { return t.name == name; });
+        if (it == threads.end()) {
+            threads.emplace_back(name, pid, cpus);
 
-        if (i == threads.end()) {
-            threads.emplace_back(name, pid, mask);
-        } else {
-            std::cerr << "WARNING! Duplicate thread ..." << std::endl;
-        }
-
-        return mask;
+            cpu_set_t mask = cpus.cpu_set();
+            if (sched_setaffinity(pid, sizeof(cpu_set_t), &mask) != 0)
+                logger->warning("Failed to set cpu affinity for thread '%s': %s\n", name.c_str(), strerror(errno));
+        } else
+            logger->warning("Duplicate thread '%s'\n", name.c_str());
     }
 };
+
+
+/***
+ * Client Manager
+ ***/
 
 class Manager
 {
@@ -148,7 +207,7 @@ class Manager
     std::vector<Mapping> parse_mapping(const std::string& file)
     {
         CSVData data{file};
-        std::vector<Mapping> result;
+        std::vector<Mapping> mappings;
 
         for (const auto& row : data.row_iter()) {
             std::vector<std::pair<std::string, std::string>> threads;
@@ -156,6 +215,7 @@ class Manager
 
             for (const auto& col : row.names()) {
                 if (string_util::starts_with(col, "t_")) {
+                    /* Columns starting with 't_' are interpreted as threads */
                     std::string thread_name = col.substr(2);
                     std::string cpu_name = row(col);
 
@@ -170,31 +230,34 @@ class Manager
 
             auto name = row.fixed();
 
-            result.emplace_back(name, threads, characteristics);
+            mappings.emplace_back(name, threads, characteristics);
         }
 
-        return result;
+        return mappings;
     }
 
     Mapping select_best_mapping(Client& c)
     {
-        CPUList occupied_cpus{};
+        logger->info("Search for best mapping for '%s' [%d] using criteria %s\n", c.exec.c_str(), c.pid, c.comp.repr().c_str());
 
+        CPUList occupied_cpus;
         for (const auto& [name, cl] : _clients) {
-            occupied_cpus |= cl.active_mapping.cpus;
+            occupied_cpus |= cl.cpus();
         }
 
-        /* Get all the tetris mappings for this client */
+        logger->debug(" * Already taken cpu(s): %s\n", string_util::join(occupied_cpus.cpulist(num_cpus), ","));
+
+        /* Get all the TETRiS mappings for this client */
         auto possible_mappings = tetris_mappings(c.mappings, occupied_cpus);
         if (possible_mappings.empty())
             throw NoMappingError("Can't find a proper mapping for the client");
         else
-            std::cout << "There are " << possible_mappings.size() << " mappings for this client." << std::endl;
+            logger->debug(" * There are %i mapping(s) for this client\n", possible_mappings.size());
 
         /* Now select the best one of the available ones according to the given
-         * criteria and the given comperator */
-        auto comp = [&c] (const Mapping& first, const Mapping& second) -> bool {
-            return c.comp(first, second);
+         * criteria and the given filter option */
+        auto comp = [&c] (const Mapping& other, const Mapping& best) -> bool {
+            return c.comp(other, best);
         };
         auto filter = [&c] (const Mapping& m) -> bool {
             return c.filter(m);
@@ -203,29 +266,35 @@ class Manager
         auto best = possible_mappings.front();
         for (const auto& m : possible_mappings) {
             if (comp(m, best) && filter(m)) {
-                std::cout << "Found better mapping: " << m.name << " (" << m.characteristic(c.comp.criteria())
-                    << ") is better than " << best.name << " (" << best.characteristic(c.comp.criteria()) << ")"
-                    << std::endl;
+                logger->debug(" * Found better mapping: %s (%f@%s) [%s] vs %s (%f@%s) [%s]\n", m.name.c_str(),
+                                                                          m.characteristic(c.comp.criteria()),
+                                                                          c.comp.repr().c_str(),
+                                                                          m.equivalence_class().name().c_str(),
+                                                                          best.name.c_str(),
+                                                                          best.characteristic(c.comp.criteria()),
+                                                                          c.comp.repr().c_str(),
+                                                                          best.equivalence_class().name().c_str());
                 best = m;
             }
         }
 
-        std::cout << "The best mapping is: " << best.name << " (" << best.characteristic(c.comp.criteria()) << ")"
-            << " [equiv: " << best.equivalence_class().name() << "]"
-            << " with CPUs " << string_util::join(best.cpus.cpulist(num_cpus), ",") << std::endl;
+        logger->info("The best mapping: %s (%f@%s) [%s]\n", best.name.c_str(), best.characteristic(c.comp.criteria()),
+                                                            c.comp.repr().c_str(), best.equivalence_class().name().c_str());
 
         return best;
     }
 
     Mapping use_preferred_mapping(Client& c, const std::string& preferred_mapping_name)
     {
-        for (const auto& m : c.mappings) {
-            if (m.name == preferred_mapping_name)
-                return m;
-        }
+        logger->info("Use preferred mapping '%s' for '%s' [%d]\n", preferred_mapping_name.c_str(), c.exec.c_str(), c.pid);
 
-        /* We could not find the specified mapping. Use the best one. */
-        return select_best_mapping(c);
+        auto it = std::find_if(c.mappings.begin(), c.mappings.end(), [&](const auto& m) { return m.name == preferred_mapping_name; });
+        if (it != c.mappings.end())
+            return *it;
+        else {
+            logger->info("Couldn't find preferred mapping\n");
+            return select_best_mapping(c);
+        }
     }
 
    public:
@@ -249,37 +318,18 @@ class Manager
     try {
         Client& c = _clients.at(fd);
 
-        for (const auto& m : c.mappings) {
-            if (m.name == preferred_mapping_name) {
-                c.active_mapping = m;
-                break;
-            }
-        }
+        logger->info("Change mapping for client '%s' [%d] to mapping %s\n", c.exec.c_str(), c.pid, preferred_mapping_name.c_str());
 
-        for (auto& t : c.threads) {
-            std::cout << "Remapping: " << t.name << std::endl;
-
-            cpu_set_t* mask = &t.affinity;
-            CPU_ZERO(mask);
-
-            if (c.dynamic_client) {
-                std::cout << "Enabling all cpus for dynamic clients." << std::endl;
-
-                for (auto [name, cpu] : c.active_mapping.thread_map) {
-                    CPU_SET(cpu, mask);
-                    std::cout << "Enabling cpu " << cpu << " (for thread " << name << ")" << std::endl;
-                }
-            } else {
-                std::cout << "Pinning thread " << t.name << " to cpu " << c.active_mapping.thread_map.at(t.name) << std::endl;
-                CPU_SET(c.active_mapping.thread_map.at(t.name), mask);
-            }
-
-            if (sched_setaffinity(t.tid, sizeof(cpu_set_t), mask) != 0)
-                std::cerr << "Failed to set cpu affinity for the thread." << std::endl
-                    << strerror(errno) << std::endl;
+        auto it = std::find_if(c.mappings.begin(), c.mappings.end(), [&](const auto& m) { return m.name == preferred_mapping_name; });
+        if (it == c.mappings.end()) {
+            logger->info("Unknown mapping %s for client %i\n", preferred_mapping_name.c_str(), fd);
+            return;
+        } else {
+            logger->info("Changing mapping for client '%s' [%d] to mapping %s\n", c.exec.c_str(), c.pid, preferred_mapping_name.c_str());
+            c.update_mapping(*it);
         }
     } catch (std::out_of_range&) {
-        std::cerr << "Unknown client " << fd << std::endl;
+        logger->error("Unknown client %i\n", fd);
     }
 
     bool client_message(int fd)
@@ -311,6 +361,8 @@ class Manager
                         std::string exec = string_util::strip(path_util::basename(message.new_client_data.exec));
                         bool managed;
                         try {
+                            logger->info("New client registered: '%s' [%d]\n", exec.c_str(), pid);
+
                             /* Update the client data. */
                             c.pid = pid;
                             c.exec = exec;
@@ -320,32 +372,36 @@ class Manager
                             c.comp = Client::Comp(string_util::strip(message.new_client_data.compare_criteria),
                                     message.new_client_data.compare_more_is_better);
 
+                            logger->info(" * criteria: %s\n", c.comp.repr().c_str());
+
                             if (message.new_client_data.has_filter_criteria)
                                 c.filter = Filter(message.new_client_data.filter_criteria);
 
+                            logger->info(" * filter: %s\n", c.filter.repr().c_str());
+
                             if (message.new_client_data.has_preferred_mapping) {
                                 std::string preferred_mapping = string_util::strip(message.new_client_data.preferred_mapping);
-                                c.active_mapping = use_preferred_mapping(c, preferred_mapping);
+                                c.update_mapping(use_preferred_mapping(c, preferred_mapping));
                             } else {
-                                c.active_mapping = select_best_mapping(c);
+                                c.update_mapping(select_best_mapping(c));
                             }
 
-                            std::cout << "New client registered: '" << exec << "' [" << pid << "]" << std::endl;
-                            cpu_set_t mask = c.new_thread("@main", c.pid);
-                            if (sched_setaffinity(c.pid, sizeof(cpu_set_t), &mask) != 0)
-                                std::cerr << "Failed to set cpu affinity for main thread." << std::endl
-                                    << strerror(errno) << std::endl;
+                            logger->info(" * mapping: %s (%f@%s) [%s]\n", c.active_mapping.name.c_str(),
+                                                                          c.active_mapping.characteristic(c.comp.criteria()),
+                                                                          c.comp.repr().c_str(),
+                                                                          c.active_mapping.equivalence_class().name().c_str());
+                            logger->info(" * thread placement: %s\n", c.dynamic_client ? "CFS" : "static");
 
-                            std::cout << "Run client according to mapping " << c.active_mapping.name << "." << std::endl;
-                            std::cout << "Client is " << ((c.dynamic_client) ? "managed dynamically by CFS." : "mapped statically.") << std::endl;
+                            /* Add the main thread to the client */
+                            c.new_thread("@main", c.pid);
 
                             /* We will manage this client. */
                             managed = true;
                         } catch (std::out_of_range&) {
-                            std::cout << "Unknown client: '" << exec << "' [" << pid << "]" << std::endl;
+                            logger->error("Unknown client: '%s' [%i]\n", exec.c_str(), pid);
                             managed = false;
                         } catch (NoMappingError&) {
-                            std::cout << "Couldn't find a proper mapping for client: '" << exec << "' [" << pid << "]" << std::endl;
+                            logger->warning("Couldn't find a proper mapping for client: '%s' [%i]\n", exec.c_str(), pid);
                             managed = false;
                         }
 
@@ -355,7 +411,8 @@ class Manager
                         ack.new_client_ack_data.managed = managed;
 
                         if (conn->write(ack) != Connection::OutState::DONE) {
-                            std::cerr << "Failed to acknowledge the new-client message." << std::endl;
+                            logger->error("Failed to acknowledge the new-client message\n");
+                            managed = false;
                         }
 
                         /* If we don't manage this client we can close its connection. */
@@ -368,18 +425,10 @@ class Manager
                         bool managed;
                         try {
                             /* Update the client data. */
-                            cpu_set_t mask = c.new_thread(name, tid);
-                            std::cout << "New thread '" << name << "' [" << tid << "] for client '" << c.exec << "'"
-                                << " registered." << std::endl;
-
-                            /* Set the affinity for the thread. */
-                            if (sched_setaffinity(tid, sizeof(cpu_set_t), &mask) != 0)
-                                std::cerr << "Failed to set cpu affinity for the thread." << std::endl
-                                    << strerror(errno) << std::endl;
-
+                            c.new_thread(name, tid);
                             managed = true;
                         } catch (std::out_of_range) {
-                            std::cout << "Unknown thread '" << name << "' for client '" << c.exec << "'" << std::endl;
+                            logger->error("Unknown thread: '%s' [%i] for client '%s'\n", name.c_str(), tid, c.exec.c_str());
                             managed = false;
                         }
 
@@ -388,21 +437,20 @@ class Manager
                         ack.op = TetrisData::NEW_THREAD_ACK;
                         ack.new_thread_ack_data.managed = managed;
 
-                        if (conn->write(ack) != Connection::OutState::DONE) {
-                            std::cerr << "Failed to acknowledge the new-thread message." << std::endl;
-                        }
+                        if (conn->write(ack) != Connection::OutState::DONE)
+                            logger->error("Failed to acknowledge the new-thread message\n");
 
                         break;
                     }
                     default:
-                        std::cout << "Other message received." << std::endl;
+                        logger->warning("Other message received\n");
                 }
             }
         }
 
         return close;
     } catch (std::out_of_range) {
-        std::cerr << "Unknown client: " << fd << "." << std::endl;
+        logger->warning("Received message for unknown client %i\n", fd);
         return true;
     }
 
@@ -410,41 +458,31 @@ class Manager
         std::cout << "Currently active mappings:" << std::endl
                   << "==========================" << std::endl;
         for (const auto& [name, client] : _clients) {
-            std::cout << "-> Client: " << name << std::endl;
+            std::cout << "Client: " << name << std::endl;
 
-            for (const auto& t : client.threads) {
-                std::vector<std::string> cpus;
-                std::cout << "Thread: (" << t.tid << "," << t.name << ") ";
-
-                for (int i = num_cpus - 1; i >= 0; i--) {
-                    std::cout << CPU_ISSET(i, &t.affinity);
-                    if (CPU_ISSET(i, &t.affinity)) {
-                        cpus.push_back(std::to_string(i));
-                    }
-                }
-
-                std::cout << " [" << string_util::join(cpus, ',') << "]" << std::endl;
-            }
+            for (const auto& t : client.threads)
+                std::cout << "-> Thread: (" << t.tid << "," << t.name << ") ["
+                    << string_util::join(t.cpus.cpulist(num_cpus), ",") << "]" << std::endl;
         }
         std::cout << "======= END OF LIST =======" << std::endl;
     } 
 
     void update_mappings()
     {
-        std::cout << "Update mapping database (" << _mappings_path << ")." << std::endl;
+        logger->info("Update mapping database (%s).\n", _mappings_path.c_str());
         _mappings.clear();
 
         try {
             path_util::for_each_file(_mappings_path, [&](const std::string& file) -> void {
                 if (path_util::extension(file) == ".csv") {
                     std::string program = string_util::strip(path_util::filename(file));
-                    std::cout << " -> found mapping for '" << program << "'" << std::endl;
+                    logger->info(" -> found mapping for '%s'\n", program.c_str());
 
                     _mappings.emplace(program, parse_mapping(file));
                 }
             });
         } catch (std::exception& e) {
-            std::cout << "Reading mappings failed with:" << std::endl << e.what() << std::endl;
+            logger->error("Reading mappings failed with: %s\n", e.what());
         }
     }
 };
@@ -481,8 +519,13 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Setting up the manager. */
+    /* Setup logging */
+    logger = debug::Logger::get();
+
+    /* Setting up the manager */
     Manager manager{mappings_path};
+
+    std::cout << "Welcome to TETRiS" << std::endl;
 
     /* Setting up the server socket */
     Socket server_sock;
@@ -509,13 +552,11 @@ int main(int argc, char *argv[])
     } catch (std::runtime_error& e) {
         std::cerr << "Failed to open control socket" << std::endl
           << e.what() << std::endl;
-        return 2;
+        return 1;
     }
 
-    std::cout << "Server socket initialized at " << server_sock.path() << " ("
-        << sock_fd << ")." << std::endl;
-    std::cout << "Control socket initialized at " << ctl_sock.path() << " ("
-        << ctl_fd << ")." << std::endl;
+    logger->info(" * Server socket: %s (%i)\n", server_sock.path(), sock_fd);
+    logger->info(" * Control socket: %s (%i)\n", ctl_sock.path(), ctl_fd);
 
     /* Setup signal handling */
     int sig_fd = -1;
@@ -591,8 +632,7 @@ int main(int argc, char *argv[])
                              */
                             break;
                         } else {
-                            std::cerr << "An error happened while accepting a connection." << std::endl
-                                << strerror(errno) << std::endl;
+                            logger->error("An error happened while accepting a connection: %s", strerror(errno));
                             break;
                         }
                     }
@@ -601,31 +641,34 @@ int main(int argc, char *argv[])
                     if (cur->data.fd == sock_fd) {
                         ConnectionPtr in_conn = std::make_shared<Connection>(infd, in_sock);
                         in_conn->non_blocking();
+
                         epoll_event e;
                         e.data.fd = infd;
                         e.events = EPOLLIN;
 
                         if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, infd, &e) == -1) {
-                            std::cerr << "Failed to add new connection to epoll." << std::endl
-                                << strerror(errno) << std::endl;
+                            logger->error("Failed to add new connection to epoll: %s", strerror(errno));
                             ::close(infd);
                         } else {
-                            std::cout << "A new client connected (" << infd << ")." << std::endl;
+                            logger->info("A new client connected (%i)\n", infd);
 
                             manager.client_connect(infd, in_conn);
                         }
                     } else if (cur->data.fd == ctl_fd) {
                         ControlData cd;
                         Connection(infd, in_sock).read(cd);
+
                         switch (cd.op) {
-                            case ControlData::REMAP_CLIENT:
-                                std::cout << "Remapping client " << cd.remap_data.client_fd
-                                          << " to mapping " << cd.remap_data.new_mapping << std::endl;
-                                manager.remap(cd.remap_data.client_fd, string_util::strip(cd.remap_data.new_mapping));
+                            case ControlData::Operations::REMAP_CLIENT: {
+                                int cfd = cd.remap_data.client_fd;
+                                std::string new_mapping = string_util::strip(cd.remap_data.new_mapping);
+
+                                logger->info("Change mapping of client %i to %s\n", cfd, new_mapping);
+                                manager.remap(cfd, new_mapping);
                                 break;
-                            case ControlData::ERROR:
-                              std::cerr << "An error happened in the control connection." << std::endl;
-                              break;
+                            }
+                            default:
+                                logger->warning("Other message received.\n");
                         }
                     }
                 }
@@ -637,39 +680,39 @@ int main(int argc, char *argv[])
 
                     count = read(sig_fd, &siginfo, sizeof(siginfo));
                     if (count == -1) {
-                        if (errno != EAGAIN) {
-                            std::cerr << "An error happened while reading data from signal fd." << std::endl
-                                << strerror(errno) << std::endl;
-                        }
+                        if (errno != EAGAIN)
+                            logger->error("An error happened while reading data from signal fd: %s", strerror(errno));
+
                         break;
                     }
 
-                    std::cout << "Received a signal (" << siginfo.ssi_signo << ")." << std::endl;
+                    logger->info("Received a signal (%i)\n", siginfo.ssi_signo);
 
-                    if (siginfo.ssi_signo == SIGUSR1) {
-                        std::cout << "Refreshing mapping database." << std::endl;
-                        manager.update_mappings();
-                    } else if (siginfo.ssi_signo == SIGUSR2) {
-                        std::cout << "Printing mappings ..." << std::endl;
-                        manager.print_mappings();
-                    } else {
-                        done = 1;
+                    switch (siginfo.ssi_signo) {
+                        case SIGUSR1:
+                            manager.update_mappings();
+                            break;
+                        case SIGUSR2:
+                            manager.print_mappings();
+                            break;
+                        default:
+                            done = 1;
                     }
                 }
             } else if (cur->events & EPOLLIN) {
                 /* Some client tried to send us data. */
-                std::cout << "The client sent a message." << std::endl;
+                logger->debug("The client sent a message\n");
 
                 if (manager.client_message(cur->data.fd)) {
-                    std::cout << "The client disconnected" << std::endl;
+                    logger->info("The client disconnected\n");
                     manager.client_disconnect(cur->data.fd);
                 }
             } else if (cur->events & EPOLLHUP) {
                 /* Some client disconnected. */
-                std::cout << "The client disconnected" << std::endl;
+                logger->info("The client disconnected\n");
                 manager.client_disconnect(cur->data.fd);
             } else {
-                std::cerr << "Strange event at fd " << cur->data.fd << std::endl;
+                logger->warning("Strange event at %i\n", cur->data.fd);
                 ::close(cur->data.fd);
             }
         }

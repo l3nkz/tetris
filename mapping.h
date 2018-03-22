@@ -70,19 +70,14 @@ class Mapping
         }
     }
 
-    cpu_set_t cpu_mask(const std::string& thread) const
+    CPUList cpu(const std::string& thread) const
     {
-        cpu_set_t mask;
-        CPU_ZERO(&mask);
-
-        if (thread_map.find(thread) != thread_map.end()) {
-            CPU_SET(thread_map.at(thread), &mask);
-        } else {
+        auto it = thread_map.find(thread);
+        if (it != thread_map.end())
+            return {it->second};
+        else
             /* If we don't know this thread we will enable all cores of this mapping */
-            mask = cpus.cpu_set();
-        }
-
-        return mask;
+            return cpus;
     }
 
     double characteristic(const std::string& criteria) const

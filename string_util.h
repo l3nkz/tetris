@@ -15,9 +15,9 @@ namespace string_util {
 /* Prototypes */
 bool ends_with(const std::string&, const std::string&);
 template <template<typename> class Container, typename T>
-std::string join(const Container<T>&, const std::string&);
-template <template<typename> class Container, typename T>
 std::string join(const Container<T>&, const char delim=' ');
+template <template<typename> class Container, typename T>
+std::string join(const Container<T>&, const std::string&);
 std::string lstrip(const std::string&);
 std::string rstrip(const std::string&);
 std::vector<std::string> split(const std::string&, char delim=' ');

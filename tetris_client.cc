@@ -1,4 +1,5 @@
 #include "connection.h"
+#include "debug_util.h"
 #include "tetris.h"
 
 #include <algorithm>
@@ -63,67 +64,6 @@ class TimeKeeper
 
 
 /***
- * Logging
- ***/
-
-class Logger
-{
-   private:
-    enum Level {
-        NONE = 0,
-        ERROR = 1,
-        INFO = 2,
-        DEBUG = 3
-    };
-
-    int _level;
-
-   public:
-    Logger() :
-        _level(NONE)
-    {
-        char *log_level = getenv("TETRIS_LOGLEVEL");
-
-        if (log_level) {
-            if (strcmp(log_level, "DEBUG") == 0)
-                _level = DEBUG;
-            else if (strcmp(log_level, "INFO") == 0)
-                _level = INFO;
-            else if (strcmp(log_level, "ERROR") == 0)
-                _level = ERROR;
-        }
-    }
-
-    template <typename... Args>
-    void debug(const char* fmt, Args... args)
-    {
-        if (_level >= DEBUG)
-            printf(fmt, args...);
-    }
-
-    template <typename... Args>
-    void info(const char* fmt, Args... args)
-    {
-        if (_level >= INFO)
-            printf(fmt, args...);
-    }
-
-    template <typename... Args>
-    void error(const char* fmt, Args... args)
-    {
-        if (_level >= ERROR)
-            printf(fmt, args...);
-    }
-
-    template <typename... Args>
-    void always(const char* fmt, Args... args)
-    {
-        printf(fmt, args...);
-    }
-};
-
-
-/***
  * Thread management
  ***/
 
@@ -148,13 +88,12 @@ struct ThreadInfo {
  * Global variables
  ***/
 
-using LoggerPtr = std::unique_ptr<Logger>;
 using Timer = TimeKeeper<std::atomic_ulong, std::chrono::system_clock, std::chrono::nanoseconds>;
 using ConnectionPtr = std::unique_ptr<Connection>;
 using ThreadList = std::vector<ThreadInfo*>;
 using ThreadListPtr = std::unique_ptr<ThreadList>;
 
-LoggerPtr logger;
+debug::LoggerPtr logger;
 ConnectionPtr connection;
 ThreadListPtr threads;
 
@@ -260,7 +199,7 @@ void __attribute__((constructor)) setup(void)
     Timer t{time_ns};
 
     time_ns = 0;
-    logger = std::make_unique<Logger>();
+    logger = debug::Logger::get();
     threads = std::make_unique<ThreadList>();
 
     logger->info("Loading TETRIS support\n");
