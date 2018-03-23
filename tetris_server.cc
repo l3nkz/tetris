@@ -156,8 +156,8 @@ class Client
                 cpus = active_mapping.cpu(t.name);
 
             logger->debug(" * remap thread '%s' [%i] from cpu(s) %s to cpu(s) %s\n", t.name.c_str(), t.tid,
-                    string_util::join(t.cpus.cpulist(num_cpus), ","),
-                    string_util::join(cpus.cpulist(num_cpus), ","));
+                    string_util::join(t.cpus.cpulist(num_cpus), ",").c_str(),
+                    string_util::join(cpus.cpulist(num_cpus), ",").c_str());
 
             t.cpus = cpus;
 
@@ -174,10 +174,10 @@ class Client
         CPUList cpus;
         if (dynamic_client) {
             cpus = active_mapping.cpus;
-            logger->debug(" * enabled cpu(s) %s (dynamic client)\n", string_util::join(cpus.cpulist(num_cpus), ","));
+            logger->debug(" * enabled cpu(s) %s (dynamic client)\n", string_util::join(cpus.cpulist(num_cpus), ",").c_str());
         } else {
             cpus = active_mapping.cpu(name);
-            logger->debug(" * enabled cpu(s) %s\n", string_util::join(cpus.cpulist(num_cpus), ","));
+            logger->debug(" * enabled cpu(s) %s\n", string_util::join(cpus.cpulist(num_cpus), ",").c_str());
         }
 
         auto it = std::find_if(threads.begin(), threads.end(), [&](const auto& t) { return t.name == name; });
@@ -245,7 +245,10 @@ class Manager
             occupied_cpus |= cl.cpus();
         }
 
-        logger->debug(" * Already taken cpu(s): %s\n", string_util::join(occupied_cpus.cpulist(num_cpus), ","));
+        if (occupied_cpus.nr_cpus() == 0)
+            logger->debug(" * Already taken cpu(s): none\n");
+        else
+            logger->debug(" * Already taken cpu(s): %s\n", string_util::join(occupied_cpus.cpulist(num_cpus), ",").c_str());
 
         /* Get all the TETRiS mappings for this client */
         auto possible_mappings = tetris_mappings(c.mappings, occupied_cpus);
