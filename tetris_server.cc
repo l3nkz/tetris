@@ -252,9 +252,10 @@ class Manager
 
         /* Get all the TETRiS mappings for this client */
         auto possible_mappings = tetris_mappings(c.mappings, occupied_cpus);
-        if (possible_mappings.empty())
-            throw NoMappingError("Can't find a proper mapping for the client");
-        else
+        if (possible_mappings.empty()) {
+            logger->debug("No mappings are available for client '%s' [%i] that fit the available cpu(s)\n", c.exec.c_str(), c.pid);
+            throw NoMappingError("Can't find a proper mapping for the client.");
+        } else
             logger->debug(" * There are %i mapping(s) for this client\n", possible_mappings.size());
 
         /* Now select the best one of the available ones according to the given
@@ -266,25 +267,42 @@ class Manager
             return c.filter(m);
         };
 
-        auto best = possible_mappings.front();
-        for (const auto& m : possible_mappings) {
-            if (comp(m, best) && filter(m)) {
-                logger->debug(" * Found better mapping: %s (%f@%s) [%s] vs %s (%f@%s) [%s]\n", m.name.c_str(),
-                                                                          m.characteristic(c.comp.criteria()),
-                                                                          c.comp.repr().c_str(),
-                                                                          m.equivalence_class().name().c_str(),
-                                                                          best.name.c_str(),
-                                                                          best.characteristic(c.comp.criteria()),
-                                                                          c.comp.repr().c_str(),
-                                                                          best.equivalence_class().name().c_str());
+        /* Step one: Search for any mapping that satisfies the filter criteria */
+        auto best = possible_mappings.begin();
+        for (; best != possible_mappings.end(); ++best) {
+            if (filter(*best)) {
+                logger->debug(" * Start with mapping: %s (%f@%s) [%s]\n", best->name.c_str(),
+                        best->characteristic(c.comp.criteria()), c.comp.repr().c_str(),
+                        best->equivalence_class().name().c_str());
+                break;
+            }
+        }
+
+        /* Step two: Now search through the remaining mappings, looking for one that
+         * satisfies the filter criteria and is better that the previously found one. */
+        for (auto m = best; m != possible_mappings.end(); ++m) {
+            if (filter(*m) && comp(*m, *best)) {
+                logger->debug(" * Found better mapping: %s (%f@%s) [%s] vs %s (%f@%s) [%s]\n",
+                        m->name.c_str(), m->characteristic(c.comp.criteria()),
+                        c.comp.repr().c_str(), m->equivalence_class().name().c_str(),
+                        best->name.c_str(), best->characteristic(c.comp.criteria()),
+                        c.comp.repr().c_str(), best->equivalence_class().name().c_str());
+
+                /* Remember this one as best one */
                 best = m;
             }
         }
 
-        logger->info("The best mapping: %s (%f@%s) [%s]\n", best.name.c_str(), best.characteristic(c.comp.criteria()),
-                                                            c.comp.repr().c_str(), best.equivalence_class().name().c_str());
+        if (best == possible_mappings.end()) {
+            logger->debug("No possible mapping for client '%s' [%i] satisfies the filter criteria\n", c.exec.c_str(), c.pid);
+            throw NoMappingError("Can't find mapping that satisfies filter criteria.");
+        }
 
-        return best;
+        logger->info("The best mapping: %s (%f@%s) [%s]\n", best->name.c_str(),
+                best->characteristic(c.comp.criteria()), c.comp.repr().c_str(),
+                best->equivalence_class().name().c_str());
+
+        return *best;
     }
 
     Mapping use_preferred_mapping(Client& c, const std::string& preferred_mapping_name)
