@@ -85,7 +85,7 @@ class Mapping
         if (characteristics_map.find(criteria) != characteristics_map.end())
             return characteristics_map.at(criteria);
 
-        throw std::runtime_error("Unknown characteristic criteria");
+        throw std::runtime_error("Unknown characteristic criteria.");
     }
 
     std::vector<Mapping> equivalent_mappings() const
