@@ -473,6 +473,9 @@ class Manager
     } catch (std::out_of_range) {
         logger->warning("Received message for unknown client %i\n", fd);
         return true;
+    } catch (std::runtime_error& e) {
+        logger->warning("Error working with message for client %i: %s", fd, e.what());
+        return true;
     }
 
     void print_mappings() {
