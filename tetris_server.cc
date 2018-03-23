@@ -233,6 +233,27 @@ class Manager
             mappings.emplace_back(name, threads, characteristics);
         }
 
+        {
+            std::vector<std::string> thread_names;
+            std::vector<std::string> characteristic_names;
+
+            for (const auto& col : data.columns()) {
+                if (string_util::starts_with(col, "t_"))
+                    thread_names.push_back(col.substr(2));
+                else
+                    characteristic_names.push_back(col);
+            }
+
+            logger->debug("  * Found %i mapping(s)\n", mappings.size());
+            logger->debug("  |-> %i thread(s): %s\n", thread_names.size(),
+                    string_util::join(thread_names, ",").c_str());
+            logger->debug("  |-> %i characteristic(s): %s\n", characteristic_names.size(),
+                    string_util::join(characteristic_names, ",").c_str());
+
+            for (const auto& m : mappings)
+                logger->debug("  |=> %s [%s]\n", m.name.c_str(), m.equivalence_class().name().c_str());
+        }
+
         return mappings;
     }
 
