@@ -23,7 +23,8 @@ class CPUList
         CPU_ZERO(&_cpus);
     }
 
-    CPUList(const std::vector<int>& cpus) :
+    template <template<typename> class Container>
+    CPUList(const Container<int>& cpus) :
         CPUList{}
     {
         for (const auto c : cpus)
@@ -98,7 +99,7 @@ class CPUList
         return CPU_COUNT(&tmp) != 0;
     }
 
-    int cpus() const
+    int nr_cpus() const
     {
         return CPU_COUNT(&_cpus);
     }
