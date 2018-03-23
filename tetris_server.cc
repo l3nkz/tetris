@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <iomanip>
 #include <iostream>
 #include <functional>
 #include <map>
@@ -250,8 +251,20 @@ class Manager
             logger->debug("  |-> %i characteristic(s): %s\n", characteristic_names.size(),
                     string_util::join(characteristic_names, ",").c_str());
 
-            for (const auto& m : mappings)
-                logger->debug("  |=> %s [%s]\n", m.name.c_str(), m.equivalence_class().name().c_str());
+            for (const auto& m : mappings) {
+                std::vector<std::string> mapping_characterisics;
+
+                for (const auto& c : characteristic_names) {
+                    std::stringstream ss;
+
+                    ss << std::setprecision(0) << std::fixed << c << ":" << m.characteristic(c);
+                    mapping_characterisics.push_back(ss.str());
+                }
+
+                logger->debug("  |=> %s [%s] %s\n", m.name.c_str(),
+                        m.equivalence_class().name().c_str(),
+                        string_util::join(mapping_characterisics, ",").c_str());
+            }
         }
 
         return mappings;
@@ -292,7 +305,7 @@ class Manager
         auto best = possible_mappings.begin();
         for (; best != possible_mappings.end(); ++best) {
             if (filter(*best)) {
-                logger->debug(" * Start with mapping: %s (%f@%s) [%s]\n", best->name.c_str(),
+                logger->debug(" * Start with mapping: %s (%.0f@%s) [%s]\n", best->name.c_str(),
                         best->characteristic(c.comp.criteria()), c.comp.repr().c_str(),
                         best->equivalence_class().name().c_str());
                 break;
@@ -303,7 +316,7 @@ class Manager
          * satisfies the filter criteria and is better that the previously found one. */
         for (auto m = best; m != possible_mappings.end(); ++m) {
             if (filter(*m) && comp(*m, *best)) {
-                logger->debug(" * Found better mapping: %s (%f@%s) [%s] vs %s (%f@%s) [%s]\n",
+                logger->debug(" * Found better mapping: %s (%.0f@%s) [%s] vs %s (%.0f@%s) [%s]\n",
                         m->name.c_str(), m->characteristic(c.comp.criteria()),
                         c.comp.repr().c_str(), m->equivalence_class().name().c_str(),
                         best->name.c_str(), best->characteristic(c.comp.criteria()),
@@ -319,7 +332,7 @@ class Manager
             throw NoMappingError("Can't find mapping that satisfies filter criteria.");
         }
 
-        logger->info("The best mapping: %s (%f@%s) [%s]\n", best->name.c_str(),
+        logger->info("The best mapping: %s (%.0f@%s) [%s]\n", best->name.c_str(),
                 best->characteristic(c.comp.criteria()), c.comp.repr().c_str(),
                 best->equivalence_class().name().c_str());
 
@@ -360,14 +373,16 @@ class Manager
     try {
         Client& c = _clients.at(fd);
 
-        logger->info("Change mapping for client '%s' [%d] to mapping %s\n", c.exec.c_str(), c.pid, preferred_mapping_name.c_str());
+        logger->info("Change mapping for client '%s' [%d] to mapping %s\n",
+                c.exec.c_str(), c.pid, preferred_mapping_name.c_str());
 
         auto it = std::find_if(c.mappings.begin(), c.mappings.end(), [&](const auto& m) { return m.name == preferred_mapping_name; });
         if (it == c.mappings.end()) {
             logger->info("Unknown mapping %s for client %i\n", preferred_mapping_name.c_str(), fd);
             return;
         } else {
-            logger->info("Changing mapping for client '%s' [%d] to mapping %s\n", c.exec.c_str(), c.pid, preferred_mapping_name.c_str());
+            logger->info("Changing mapping for client '%s' [%d] to mapping %s\n",
+                    c.exec.c_str(), c.pid, preferred_mapping_name.c_str());
             c.update_mapping(*it);
         }
     } catch (std::out_of_range&) {
@@ -428,10 +443,9 @@ class Manager
                                 c.update_mapping(select_best_mapping(c));
                             }
 
-                            logger->info(" * mapping: %s (%f@%s) [%s]\n", c.active_mapping.name.c_str(),
-                                                                          c.active_mapping.characteristic(c.comp.criteria()),
-                                                                          c.comp.repr().c_str(),
-                                                                          c.active_mapping.equivalence_class().name().c_str());
+                            logger->info(" * mapping: %s (%.0f@%s) [%s]\n", c.active_mapping.name.c_str(),
+                                    c.active_mapping.characteristic(c.comp.criteria()), c.comp.repr().c_str(),
+                                    c.active_mapping.equivalence_class().name().c_str());
                             logger->info(" * thread placement: %s\n", c.dynamic_client ? "CFS" : "static");
 
                             /* Add the main thread to the client */
