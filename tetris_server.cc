@@ -522,13 +522,13 @@ int main(int argc, char *argv[])
         }
     }
 
+    std::cout << "Welcome to TETRiS" << std::endl;
+
     /* Setup logging */
     logger = debug::Logger::get();
 
     /* Setting up the manager */
     Manager manager{mappings_path};
-
-    std::cout << "Welcome to TETRiS" << std::endl;
 
     /* Setting up the server socket */
     Socket server_sock;
