@@ -1,8 +1,8 @@
-# TETRIS
+# TETRiS
 
 ## Build
 
-Use the following commands to build TETRIS
+Use the following commands to build TETRiS
 
 mkdir build && cd build
 cmake ..
@@ -11,14 +11,14 @@ make
 
 ## Run
 
-To be able to manage an application with TETRIS two steps are necessary.
-First of all you need to start the TETRIS-server and give it the path
+To be able to manage an application with TETRiS two steps are necessary.
+First of all you need to start the TETRiS-server and give it the path
 to the mappings for each program. The server executable is located in the
 'bin'-directory.
 
 After the server started up, it is now possible to run other applications and
-let the TETRIS server manage them. To achieve this, one has to add the
-TETRIS-client library to the program. This can be achieved by preloading the
+let the TETRiS server manage them. To achieve this, one has to add the
+TETRiS-client library to the program. This can be achieved by preloading the
 library with the LD_PRELOAD primitive. The library is located in the 
 'lib'-directory.
 
@@ -35,7 +35,7 @@ The client reacts to two environment variables.
 
 #### TETRIS_LOG_LEVEL
 
-With this environmental variable you can control how much information the TETRIS
+With this environmental variable you can control how much information the TETRiS
 client library outputs. Possible values are DEBUG, INFO and ERROR.
 
 #### TETRIS_DYNAMIC_MAPPING
@@ -53,14 +53,14 @@ comparison characteristic.
 
 #### TETRIS_COMPARE_MORE_IS_BETTER
 
-If not set, the tetris server will assume that smaller values for the mapping characteristic
+If not set, the TETRiS server will assume that smaller values for the mapping characteristic
 are better than larger ones. Hence the server will always prefer the mapping for the
 application with the smallest value in the compare characteristic. With this environment
 variable one can change this behavior to more is better.
 
 #### TETRIS_FILTER_CRITERIA
 
-With this environment variable you can influence which mappings available for the tetris server
+With this environment variable you can influence which mappings available for the TETRiS server
 are actually considered for the application. Hence, one can filter out mappings that don't match
 the given criteria. The syntax to define the filter is as follows:
 
