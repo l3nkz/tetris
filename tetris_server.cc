@@ -274,6 +274,30 @@ class Manager
     {
         logger->info("Search for best mapping for '%s' [%d] using criteria %s\n", c.exec.c_str(), c.pid, c.comp.repr().c_str());
 
+        /* First go through all mappings and take those that satisfy our filter criteria */
+        auto filter = [&c] (const Mapping& m) -> bool {
+            return c.filter(m);
+        };
+
+        std::vector<Mapping> possible_mappings;
+        for (const auto& m : c.mappings) {
+            if (filter(m))
+                possible_mappings.push_back(m);
+            else
+                logger->debug(" * Mapping %s (%.0f@%s) [%s] doesn't satisfy filter criteria %s\n",
+                        m.name.c_str(), m.characteristic(c.comp.criteria()), c.comp.criteria().c_str(),
+                        m.equivalence_class().name().c_str(), c.filter.repr().c_str());
+        }
+
+
+        if (possible_mappings.empty()) {
+            logger->debug("No mappings are available for client '%s' [%i] that satisfy the filter\n", c.exec.c_str(), c.pid);
+            throw NoMappingError("Can't find mapping that satisfies the filter.");
+        } else
+            logger->debug(" * There are %i mapping(s) for this client that satisfy the filter\n", possible_mappings.size());
+
+        /* Now get all the mappings (containing equivalent ones) from the possible ones,
+         * that still fit on the non-occupied CPUs. */
         CPUList occupied_cpus;
         for (const auto& [name, cl] : _clients) {
             if (cl.pid == c.pid)
@@ -288,36 +312,24 @@ class Manager
             logger->debug(" * Already taken cpu(s): %s\n", string_util::join(occupied_cpus.cpulist(num_cpus), ",").c_str());
 
         /* Get all the TETRiS mappings for this client */
-        auto possible_mappings = tetris_mappings(c.mappings, occupied_cpus);
-        if (possible_mappings.empty()) {
+        auto possible_tetris_mappings = tetris_mappings(possible_mappings, occupied_cpus);
+        if (possible_tetris_mappings.empty()) {
             logger->debug("No mappings are available for client '%s' [%i] that fit the available cpu(s)\n", c.exec.c_str(), c.pid);
             throw NoMappingError("Can't find a proper mapping for the client.");
         } else
-            logger->debug(" * There are %i mapping(s) for this client\n", possible_mappings.size());
+            logger->debug(" * There are %i mapping(s) for this client that fit the available cpu(s)\n", possible_mappings.size());
 
-        /* Now select the best one of the available ones according to the given
-         * criteria and the given filter option */
+        /* Now select the best one out of the remaining ones. */
         auto comp = [&c] (const Mapping& other, const Mapping& best) -> bool {
             return c.comp(other, best);
         };
-        auto filter = [&c] (const Mapping& m) -> bool {
-            return c.filter(m);
-        };
 
-        /* Step one: Search for any mapping that satisfies the filter criteria */
-        auto best = possible_mappings.begin();
-        for (; best != possible_mappings.end(); ++best) {
-            if (filter(*best)) {
-                logger->debug(" * Start with mapping: %s (%.0f@%s) [%s]\n", best->name.c_str(),
-                        best->characteristic(c.comp.criteria()), c.comp.repr().c_str(),
-                        best->equivalence_class().name().c_str());
-                break;
-            }
-        }
+        auto best = possible_tetris_mappings.begin();
+        logger->debug(" * Start search with mapping: %s (%.0f@%s) [%s]\n", best->name.c_str(),
+                best->characteristic(c.comp.criteria()), c.comp.repr().c_str(),
+                best->equivalence_class().name().c_str());
 
-        /* Step two: Now search through the remaining mappings, looking for one that
-         * satisfies the filter criteria and is better that the previously found one. */
-        for (auto m = best; m != possible_mappings.end(); ++m) {
+        for (auto m = best; m != possible_tetris_mappings.end(); ++m) {
             if (filter(*m) && comp(*m, *best)) {
                 logger->debug(" * Found better mapping: %s (%.0f@%s) [%s] vs %s (%.0f@%s) [%s]\n",
                         m->name.c_str(), m->characteristic(c.comp.criteria()),
@@ -328,11 +340,6 @@ class Manager
                 /* Remember this one as best one */
                 best = m;
             }
-        }
-
-        if (best == possible_mappings.end()) {
-            logger->debug("No possible mapping for client '%s' [%i] satisfies the filter criteria\n", c.exec.c_str(), c.pid);
-            throw NoMappingError("Can't find mapping that satisfies filter criteria.");
         }
 
         logger->info("The best mapping: %s (%.0f@%s) [%s]\n", best->name.c_str(),
