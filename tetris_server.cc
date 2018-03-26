@@ -276,6 +276,9 @@ class Manager
 
         CPUList occupied_cpus;
         for (const auto& [name, cl] : _clients) {
+            if (cl.pid == c.pid)
+                continue;
+
             occupied_cpus |= cl.cpus();
         }
 
@@ -513,6 +516,53 @@ class Manager
         return true;
     }
 
+    void control_message(ControlData& data)
+    try {
+        switch (data.op) {
+            case ControlData::Operations::UPDATE_CLIENT: {
+                Client& c = _clients.at(data.update_data.client_fd);
+
+                logger->info("Update client: '%s' [%d]\n", c.exec.c_str(), c.pid);
+
+                /* Update the client's options according to the given new
+                 * values and select a new mapping based on the new criteria. */
+                if (data.update_data.has_dynamic_client) {
+                    c.dynamic_client = data.update_data.dynamic_client;
+
+                    logger->info(" * change thread placement: %s\n", c.dynamic_client ? "CFS" : "static");
+                }
+
+                if (data.update_data.has_compare_criteria) {
+                    c.comp = Client::Comp(string_util::strip(data.update_data.compare_criteria),
+                            data.update_data.compare_more_is_better);
+
+                    logger->info(" * change criteria: %s\n", c.comp.repr().c_str());
+                }
+
+                if (data.update_data.has_filter_criteria) {
+                    c.filter = Filter(data.update_data.filter_criteria);
+
+                    logger->info(" * change filter: %s\n", c.filter.repr().c_str());
+                }
+
+                if (data.update_data.has_preferred_mapping) {
+                    std::string preferred_mapping = string_util::strip(data.update_data.preferred_mapping);
+                    c.update_mapping(use_preferred_mapping(c, preferred_mapping));
+                } else {
+                    c.update_mapping(select_best_mapping(c));
+                }
+
+                logger->info(" * mapping: %s (%.0f@%s) [%s]\n", c.active_mapping.name.c_str(),
+                        c.active_mapping.characteristic(c.comp.criteria()), c.comp.repr().c_str(),
+                        c.active_mapping.equivalence_class().name().c_str());
+            }
+            default:
+                logger->warning("Other control message received\n");
+        }
+    } catch (std::out_of_range) {
+        logger->warning("Received control message for unknown client\n");
+    }
+
     void print_mappings() {
         std::cout << "Currently active mappings:" << std::endl
                   << "==========================" << std::endl;
@@ -676,10 +726,9 @@ int main(int argc, char *argv[])
         for (int i = 0; i < n; ++i) {
             epoll_event *cur = &events[i];
 
-            if (cur->data.fd == sock_fd || cur->data.fd == ctl_fd) {
-                /* There are a new connections at the socket.
-                 * Connect with all of them.
-                 */
+            if (cur->data.fd == sock_fd) {
+                /* There are a new connections at the server socket.
+                 * Connect with all of them. */
                 while (1) {
                     sockaddr_un in_sock;
                     socklen_t in_sock_size = sizeof(in_sock);
@@ -687,8 +736,7 @@ int main(int argc, char *argv[])
                     if (infd == -1) {
                         if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
                             /* We connected to all possible connections already.
-                             * Continue with the main loop.
-                             */
+                             * Continue with the main loop. */
                             break;
                         } else {
                             logger->error("An error happened while accepting a connection: %s", strerror(errno));
@@ -697,38 +745,52 @@ int main(int argc, char *argv[])
                     }
 
                     /* Make the new socket non-blocking and add it to epoll. */
-                    if (cur->data.fd == sock_fd) {
-                        ConnectionPtr in_conn = std::make_shared<Connection>(infd, in_sock);
-                        in_conn->non_blocking();
+                    ConnectionPtr in_conn = std::make_shared<Connection>(infd, in_sock);
+                    in_conn->non_blocking();
 
-                        epoll_event e;
-                        e.data.fd = infd;
-                        e.events = EPOLLIN;
+                    epoll_event e;
+                    e.data.fd = infd;
+                    e.events = EPOLLIN;
 
-                        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, infd, &e) == -1) {
-                            logger->error("Failed to add new connection to epoll: %s", strerror(errno));
-                            ::close(infd);
+                    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, infd, &e) == -1) {
+                        logger->error("Failed to add new connection to epoll: %s", strerror(errno));
+                        ::close(infd);
+                    } else {
+                        logger->info("A new client connected (%i)\n", infd);
+
+                        manager.client_connect(infd, in_conn);
+                    }
+                }
+            } else if (cur->data.fd == ctl_fd) {
+                /* There are a new connections at the control socket.
+                 * Connect with all of them. */
+                while (1) {
+                    sockaddr_un in_sock;
+                    socklen_t in_sock_size = sizeof(in_sock);
+                    int infd = ::accept(cur->data.fd, reinterpret_cast<sockaddr*>(&in_sock), &in_sock_size);
+                    if (infd == -1) {
+                        if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+                            /* We connected to all possible connections already.
+                             * Continue with the main loop. */
+                            break;
                         } else {
-                            logger->info("A new client connected (%i)\n", infd);
-
-                            manager.client_connect(infd, in_conn);
+                            logger->error("An error happened while accepting a connection: %s", strerror(errno));
+                            break;
                         }
-                    } else if (cur->data.fd == ctl_fd) {
-                        ControlData cd;
-                        Connection(infd, in_sock).read(cd);
+                    }
 
-                        switch (cd.op) {
-                            case ControlData::Operations::REMAP_CLIENT: {
-                                int cfd = cd.remap_data.client_fd;
-                                std::string new_mapping = string_util::strip(cd.remap_data.new_mapping);
+                    /* Control connection are usually single shot. So just open this connection
+                     * and directly read out the data */
+                    ControlData cd;
+                    Connection(infd, in_sock).read(cd);
 
-                                logger->info("Change mapping of client %i to %s\n", cfd, new_mapping);
-                                manager.remap(cfd, new_mapping);
-                                break;
-                            }
-                            default:
-                                logger->warning("Other message received.\n");
-                        }
+                    switch (cd.op) {
+                        case ControlData::Operations::UPDATE_MAPPINGS:
+                            manager.update_mappings();
+                            break;
+                        default:
+                            /* All the other control messages are directly handled in the manager */
+                            manager.control_message(cd);
                     }
                 }
             } else if (cur->data.fd == sig_fd) {

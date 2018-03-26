@@ -10,7 +10,8 @@ static const char* CONTROL_SOCKET = "/tmp/tetris_ctl";
 
 struct ControlData {
     enum Operations {
-        REMAP_CLIENT = 1,
+        UPDATE_CLIENT = 1,
+        UPDATE_MAPPINGS = 2,
         ERROR
     };
 
@@ -18,8 +19,16 @@ struct ControlData {
     union {
         struct {
             int client_fd;
-            char new_mapping[25];
-        } remap_data;
+            bool has_dynamic_client;
+            bool dynamic_client;
+            bool has_compare_criteria;
+            char compare_criteria[25];
+            bool compare_more_is_better;
+            bool has_preferred_mapping;
+            char preferred_mapping[25];
+            bool has_filter_criteria;
+            char filter_criteria[50];
+        } update_data;
     };
 };
 
