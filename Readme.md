@@ -4,9 +4,11 @@
 
 Use the following commands to build TETRiS
 
+```bash
 mkdir build && cd build
 cmake ..
 make
+```
 
 
 ## Run
@@ -31,7 +33,7 @@ tweaked.
 
 ### Client
 
-The client reacts to two environment variables.
+The client reacts to multiple environment variables:
 
 #### TETRIS_LOG_LEVEL
 
@@ -84,5 +86,3 @@ criteria are considered for the application.
 
 This environmental variable can be used to force the server to use one particular
 mapping. The value of this variable should be the name of the preferred mapping.
-
-
