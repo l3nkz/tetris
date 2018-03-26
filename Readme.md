@@ -31,14 +31,22 @@ library with the LD_PRELOAD primitive. The library is located in the
 See the help message of the server for information about how the server can be
 tweaked.
 
+In addition the server also parses the following environment variables:
+
+#### TETRIS_LOG_LEVEL
+
+With this environment variable you can control how much information the TETRiS
+server outputs. Possible values are DEBUG, INFO, WARNING and ERROR.
+
+
 ### Client
 
 The client reacts to multiple environment variables:
 
 #### TETRIS_LOG_LEVEL
 
-With this environmental variable you can control how much information the TETRiS
-client library outputs. Possible values are DEBUG, INFO and ERROR.
+With this environment variable you can control how much information the TETRiS
+client library outputs. Possible values are DEBUG, INFO, WARNING and ERROR.
 
 #### TETRIS_MAPPING_TYPE
 
@@ -86,3 +94,29 @@ criteria are considered for the application.
 
 This environmental variable can be used to force the server to use one particular
 mapping. The value of this variable should be the name of the preferred mapping.
+
+
+## Control Interface
+
+### Signals
+
+In addition to only managing the various clients that connect to the TETRiS server, the server also
+reacts to various signals that are sent to it. At the moment, the following reactions exist:
+
+#### SIGUSR1
+
+Upon a SIGUSR1 signal, the TETRiS server will reload its mapping database. Accordingly, if mappings
+change in the meantime (new applications are installed, …), the TETRiS server will now know about
+them. However, be aware that already running and managed applications are not remapped according to
+the new mapping database.
+
+#### SIGUSR2
+
+Upon a SIGUSR2 signal, the TETRiS server will output information about the applications that it
+currently manages. This information contains which mapping is currently used for the client and
+where its threads are currently mapped.
+
+### tetrisctl
+
+tetrisctl is an additional binary that can be used to send various commands to the TETRiS server.
+See the tetrisctl binary help for more information about which commands are supported.
