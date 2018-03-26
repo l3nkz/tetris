@@ -567,11 +567,14 @@ class Manager
         std::cout << "Currently active mappings:" << std::endl
                   << "==========================" << std::endl;
         for (const auto& [name, client] : _clients) {
-            std::cout << "Client: " << name << std::endl;
+            std::cout << "Client '" << client.exec << "' [" << client.pid << "] (ID: " << name << ")" << std::endl;
+            std::cout << "-> mapping: " << client.active_mapping.name << " [" 
+                << client.active_mapping.equivalence_class().name() << "]" << std::endl;
 
+            std::cout << "-> threads:" << std::endl;
             for (const auto& t : client.threads)
-                std::cout << "-> Thread: (" << t.tid << "," << t.name << ") ["
-                    << string_util::join(t.cpus.cpulist(num_cpus), ",") << "]" << std::endl;
+                std::cout << "--> " << t.name << "(" << t.tid << "): "
+                    << string_util::join(t.cpus.cpulist(num_cpus), ",") << std::endl;
         }
         std::cout << "======= END OF LIST =======" << std::endl;
     } 
