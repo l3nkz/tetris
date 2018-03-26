@@ -314,10 +314,11 @@ class Manager
         /* Get all the TETRiS mappings for this client */
         auto possible_tetris_mappings = tetris_mappings(possible_mappings, occupied_cpus);
         if (possible_tetris_mappings.empty()) {
-            logger->debug("No mappings are available for client '%s' [%i] that fit the available cpu(s)\n", c.exec.c_str(), c.pid);
-            throw NoMappingError("Can't find a proper mapping for the client.");
+            logger->debug("No TETRiS mappings are available for client '%s' [%i] that fit the available cpu(s)\n", c.exec.c_str(), c.pid);
+            throw NoMappingError("Can't find a proper TETRiS mapping for the client.");
         } else
-            logger->debug(" * There are %i mapping(s) for this client that fit the available cpu(s)\n", possible_mappings.size());
+            logger->debug(" * There are %i TETRiS mapping(s) for this client that fit the available cpu(s)\n",
+                    possible_tetris_mappings.size());
 
         /* Now select the best one out of the remaining ones. */
         auto comp = [&c] (const Mapping& other, const Mapping& best) -> bool {
