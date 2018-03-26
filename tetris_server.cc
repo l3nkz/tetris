@@ -421,7 +421,7 @@ class Manager
                         std::string exec = string_util::strip(path_util::basename(message.new_client_data.exec));
                         bool managed;
                         try {
-                            logger->info("New client registered: '%s' [%d]\n", exec.c_str(), pid);
+                            logger->always("New client registered: '%s' [%d] (ID: %d)\n", exec.c_str(), pid, fd);
 
                             /* Update the client data. */
                             c.pid = pid;
