@@ -38,11 +38,14 @@ The client reacts to two environment variables.
 With this environmental variable you can control how much information the TETRiS
 client library outputs. Possible values are DEBUG, INFO and ERROR.
 
-#### TETRIS_DYNAMIC_MAPPING
+#### TETRIS_MAPPING_TYPE
 
-This environment variable will tell tetris that no pinning should be used but instead
-the threads should be left movable. Only the list of available CPUs will be limited to
-the ones that the selected mapping contains.
+This environment variable will tell TETRiS in which way the clients should be pinned
+to the associated CPUs. If this variable is set to 'DYNAMIC', no pinning should be
+used for the client threads but instead the threads should be left movable. Only the
+list of available CPUs will be limited to the ones that the selected mapping contains.
+If this variable is not set or the value 'STATIC' is used, TETRiS will pin the client
+threads to the exact CPUs as defined in the selected mapping.
 
 #### TETRIS_COMPARE_CRITERIA
 

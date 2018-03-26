@@ -106,7 +106,7 @@ std::atomic_ulong time_ns;
  ***/
 
 static
-bool tetris_new_client(LockedConnection conn, int pid, const char* exec, bool dynamic_client,
+bool tetris_new_client(LockedConnection conn, int pid, const char* exec, char* mapping_type,
         const char* compare_criteria, bool compare_more_is_better, const char* preferred_mapping,
         const char* filter_criteria) {
     TetrisData data;
@@ -116,8 +116,17 @@ bool tetris_new_client(LockedConnection conn, int pid, const char* exec, bool dy
     data.new_client_data.pid = pid;
     std::strncpy(data.new_client_data.exec, exec, sizeof(data.new_client_data.exec));
 
-    if (dynamic_client)
-        logger->info("Enable dynamic/CFS mapping.\n");
+    bool dynamic_client = false;
+    if (mapping_type) {
+        if (strcmp(mapping_type, "DYNAMIC") == 0) {
+            logger->info("Use dynamic/CFS mapping.\n");
+            dynamic_client = true;
+        } else if (strcmp(mapping_type, "STATIC")) {
+            logger->info("Use static TETRiS mapping.\n");
+        } else {
+            logger->warning("Unknown mapping type: %s\n", mapping_type);
+        }
+    }
     data.new_client_data.dynamic_client = dynamic_client;
 
     if (compare_criteria) {
@@ -213,10 +222,7 @@ void __attribute__((constructor)) setup(void)
         readlink("/proc/self/exe", exec, sizeof(exec));
         int pid = getpid();
 
-        bool dynamic_client = false;
-        if (getenv("TETRIS_DYNAMIC_MAPPING"))
-            dynamic_client = true;
-
+        char *mapping_type = getenv("TETRIS_MAPPING_TYPE");
 
         char *compare_criteria = getenv("TETRIS_COMPARE_CRITERIA");
         bool compare_more_is_better = false;
@@ -227,7 +233,7 @@ void __attribute__((constructor)) setup(void)
 
         char *filter_criteria = getenv("TETRIS_FILTER_CRITERIA");
 
-        if (tetris_new_client(connection->locked(), pid, exec, dynamic_client, compare_criteria,
+        if (tetris_new_client(connection->locked(), pid, exec, mapping_type, compare_criteria,
                     compare_more_is_better, preferred_mapping, filter_criteria)) {
             logger->info("->> Managed by TETRIS <<-\n");
             managed_by_tetris = true;
