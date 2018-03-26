@@ -108,7 +108,10 @@ try {
 
 void usage_upd_mappings()
 {
-
+    std::cout << "usage: tetrisctl upd_mappings [-h]" << std::endl
+        << std::endl
+        << "Options:" << std::endl
+        << "   -h, --help           show this help message" << std::endl;
 }
 
 int op_update_mappings(int argc, char* argv[])
