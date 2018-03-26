@@ -21,7 +21,7 @@ void usage_upd_client()
         << " ID                     the id of the client managed by TETRiS" << std::endl
         << std::endl
         << "Parsed environment variables:" << std::endl
-        << " TETRIS_DYNAMIC_CLIENT" << std::endl
+        << " TETRIS_MAPPING_TYPE" << std::endl
         << " TETRIS_PREFERRED_MAPPING" << std::endl
         << " TETRIS_COMPARE_CRITERIA" << std::endl
         << " TETRIS_COMPARE_MORE_IS_BETTER" << std::endl
