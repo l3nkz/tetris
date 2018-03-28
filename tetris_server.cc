@@ -284,9 +284,10 @@ class Manager
             if (filter(m))
                 possible_mappings.push_back(m);
             else
-                logger->debug(" * Mapping %s (%.0f@%s) [%s] doesn't satisfy filter criteria %s\n",
+                logger->debug(" * Mapping %s (%.0f@%s) [%s] doesn't satisfy filter criteria %s: %s=%f\n",
                         m.name.c_str(), m.characteristic(c.comp.criteria()), c.comp.criteria().c_str(),
-                        m.equivalence_class().name().c_str(), c.filter.repr().c_str());
+                        m.equivalence_class().name().c_str(), c.filter.repr().c_str(),
+                        c.filter.criteria().c_str(), m.characteristic(c.filter.criteria()));
         }
 
 

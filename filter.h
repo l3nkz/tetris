@@ -23,6 +23,7 @@ class FilterComp
     virtual bool comp(const Mapping& map) const = 0;
     virtual FilterComp* clone() const = 0;
 
+    virtual std::string criteria() const = 0;
     virtual std::string repr() const = 0;
 };
 
@@ -50,6 +51,11 @@ class StdComp : public FilterComp
         return new StdComp<BaseComp>(_criteria, _value);
     }
 
+    std::string criteria() const
+    {
+        return _criteria;
+    }
+
     std::string repr() const
     {
         std::stringstream ss;
@@ -69,6 +75,11 @@ struct NoComp : public FilterComp
     FilterComp* clone() const
     {
         return new NoComp;
+    }
+
+    std::string criteria() const
+    {
+        return "none";
     }
 
     std::string repr() const
@@ -238,6 +249,11 @@ class Filter
         o._comp = nullptr;
 
         return *this;
+    }
+
+    std::string criteria() const
+    {
+        return _comp->criteria();
     }
 
     std::string repr() const
