@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 
 namespace debug {
@@ -42,33 +43,50 @@ class Logger
         }
     }
 
+    template <typename... Args>
+    void output(const char* lvl, const char* fmt, Args... args)
+    {
+        time_t rawtime;
+        struct tm* timeinfo;
+
+        std::time(&rawtime);
+        timeinfo = std::localtime(&rawtime);
+
+        char timestr[80];
+        std::strftime(timestr, 80, "%Y-%m-%D %H:%M:%S", timeinfo);
+
+        char buffer[255];
+        std::snprintf(buffer, 255, "%s %s: %s", lvl, timestr, fmt);
+        printf(buffer, args...);
+    }
+
    public:
     template <typename... Args>
     void debug(const char* fmt, Args... args)
     {
         if (_level >= DEBUG)
-            printf(fmt, args...);
+            output("[DEBUG]", fmt, args...);
     }
 
     template <typename... Args>
     void info(const char* fmt, Args... args)
     {
         if (_level >= INFO)
-            printf(fmt, args...);
+            output("INFO", fmt, args...);
     }
 
     template <typename... Args>
     void warning(const char* fmt, Args... args)
     {
         if (_level >= WARNING)
-            printf(fmt, args...);
+            output("[WARNING]", fmt, args...);
     }
 
     template <typename... Args>
     void error(const char* fmt, Args... args)
     {
         if (_level >= ERROR)
-            printf(fmt, args...);
+            output("[ERROR]", fmt, args...);
     }
 
     template <typename... Args>
