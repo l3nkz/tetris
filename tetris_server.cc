@@ -127,13 +127,12 @@ class Client
     Client(const ConnectionPtr& conn) :
         connection{conn}, exec{}, pid{-1}, dynamic_client{false}, threads{}, mappings{}, active_mapping{},
         filter{}, comp{}
-    {
-        logger->info("New client created\n");
-    }
+    {}
 
     ~Client()
     {
-        logger->info("Client removed\n");
+        if (pid != -1)
+            logger->info("Client removed '%s' [%d]\n", exec.c_str(), pid);
     }
 
     CPUList cpus() const
@@ -851,12 +850,10 @@ int main(int argc, char *argv[])
                 logger->debug("The client sent a message\n");
 
                 if (manager.client_message(cur->data.fd)) {
-                    logger->info("The client disconnected\n");
                     manager.client_disconnect(cur->data.fd);
                 }
             } else if (cur->events & EPOLLHUP) {
                 /* Some client disconnected. */
-                logger->info("The client disconnected\n");
                 manager.client_disconnect(cur->data.fd);
             } else {
                 logger->warning("Strange event at %i\n", cur->data.fd);
