@@ -168,9 +168,9 @@ class Client
         }
     }
 
-    void new_thread(const std::string& name, int pid)
+    void new_thread(const std::string& name, int tid)
     {
-        logger->info("New thread '%s' [%i] registered for client '%s'\n", name.c_str(), pid, exec.c_str());
+        logger->info("New thread '%s' [%i] registered for client '%s' [%d]\n", name.c_str(), tid, exec.c_str(), pid);
 
         CPUList cpus;
         if (dynamic_client) {
@@ -183,7 +183,7 @@ class Client
 
         auto it = std::find_if(threads.begin(), threads.end(), [&](const auto& t) { return t.name == name; });
         if (it == threads.end()) {
-            threads.emplace_back(name, pid, cpus);
+            threads.emplace_back(name, tid, cpus);
 
             cpu_set_t mask = cpus.cpu_set();
             if (sched_setaffinity(pid, sizeof(cpu_set_t), &mask) != 0)
