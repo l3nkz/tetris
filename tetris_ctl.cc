@@ -1,6 +1,9 @@
+#include "config.h"
 #include "connection.h"
-#include "tetris.h"
+#include "cpulist.h"
 #include "socket.h"
+#include "string_util.h"
+#include "tetris.h"
 
 #include <iostream>
 #include <memory>
@@ -114,8 +117,7 @@ void usage_upd_mappings()
         << "   -h, --help           show this help message" << std::endl;
 }
 
-int op_update_mappings(int argc, char* argv[])
-try {
+int op_update_mappings(int argc, char* argv[])try {
    if (argc > 3) {
         usage_upd_mappings();
         return 1;
@@ -146,6 +148,137 @@ try {
     return 1;
 }
 
+void usage_block_cpus()
+{
+    std::cout << "usage: tetrisctl block_cpus [-h] CPUS" << std::endl
+        << std::endl
+        << "Options:" << std::endl
+        << "   -h, --help           show this help message" << std::endl
+        << "Positionals:" << std::endl
+        << " CPUS                   the list of CPUs that should be blocked" << std::endl;
+}
+
+CPUList parse_cpu_list(const std::string& list)
+try {
+    CPUList cpus;
+    bool last_was_range = false;
+    int last = -1;
+    std::string sub;
+
+    if (list.empty())
+        return cpus;
+
+    for (auto it = list.begin(); it != list.end(); ++it) {
+        if (it == list.end() || *it == ',') {
+            sub = string_util::strip(sub);
+            if (sub.empty())
+                throw std::runtime_error("cpu definition is empty.");
+
+            int cur = std::stoi(sub);
+            if (last_was_range) {
+                for (int i = last; i <= cur; ++i)
+                    cpus.set(i);
+                last_was_range = false;
+                last = -1;
+            } else {
+                cpus.set(cur);
+            }
+
+            sub.clear();
+        } else if (*it == '-') {
+            sub = string_util::strip(sub);
+            if (sub.empty())
+                throw std::runtime_error("cpu definition is empty.");
+            
+            int cur = std::stoi(sub);
+            last_was_range = true;
+            last = cur;
+
+            sub.clear();
+        } else {
+            sub += *it;
+        }
+    }
+
+    /* Parse the last element */
+    sub = string_util::strip(sub);
+    if (sub.empty())
+        throw std::runtime_error("cpu definition is empty.");
+
+    int cur = std::stoi(sub);
+    if (last_was_range) {
+        for (int i = last; i <= cur; ++i)
+            cpus.set(i);
+        last_was_range = false;
+        last = -1;
+    } else {
+        cpus.set(cur);
+    }
+
+
+    return cpus;
+} catch(std::invalid_argument) {
+    throw std::runtime_error("Failed to parse cpu number");
+}
+
+int op_block_cpus(int argc, char* argv[])
+try {
+    CPUList cpus;
+
+    if (argc == 2) {
+        std::cout << "Really unblocking all cpus? [Y/n]";
+        
+        char in;
+        std::cin >> in;
+
+        if (in == 'N' || in == 'n') {
+            usage_block_cpus();
+            return 1;
+        } else if (in == 'Y' || in == 'y' || std::cin.eof()) {
+            /* Do nothing */
+        } else {
+            std::cout << "Huh??" << std::endl;
+            return 1;
+        }
+    } else if (argc == 3) {
+        std::string arg{argv[2]};
+
+        if (arg == "-h" || arg == "--help") {
+            usage_block_cpus();
+            return 0;
+        } else {
+            try {
+                cpus = parse_cpu_list(arg);
+            } catch(std::runtime_error& e) {
+                std::cout << "Malformed CPUs definition" << std::endl;
+                return 1;
+            }
+        }
+    } else if (argc > 3) {
+        usage_block_cpus();
+        return 1;
+    }
+
+    if (cpus.nr_cpus() == 0)
+        std::cout << "Unblocking all cpus" << std::endl;
+    else
+        std::cout << "Blocking cpu(s): " << string_util::join(cpus.cpulist(num_cpus), ",") << std::endl;
+
+    /* Connect to the server and transmit the data */
+    auto conn = std::make_unique<Connection>(CONTROL_SOCKET);
+    ControlData cd;
+
+    cd.op = ControlData::Operations::BLOCK_CPUS;
+    cd.block_cpus_data.cpus = cpus.cpu_set();
+
+    conn->write(cd);
+
+    return 0;
+} catch (std::runtime_error& e) {
+    std::cout << "Something went wrong: " << e.what() << std::endl;
+    return 1;
+}
+
 void usage()
 {
     std::cout << "usage: tetrisctl [-h] OPERATION" << std::endl
@@ -155,7 +288,8 @@ void usage()
         << std::endl
         << "Operations:" << std::endl
         << "   upd_client           update a client's properties" << std::endl
-        << "   upd_mappings         update the server's mapping database" << std::endl;
+        << "   upd_mappings         update the server's mapping database" << std::endl
+        << "   block_cpus           block the given CPUs from using" << std::endl;
 }
 
 int main(int argc, char* argv[])
@@ -174,6 +308,8 @@ int main(int argc, char* argv[])
         return op_update_client(argc, argv);
     } else if (op == "upd_mappings") {
         return op_update_mappings(argc, argv);
+    } else if (op == "block_cpus") {
+        return op_block_cpus(argc, argv);
     } else {
         std::cout << "Unknown operation: " << op << std::endl;
         usage();

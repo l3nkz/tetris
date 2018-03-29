@@ -205,6 +205,8 @@ class Manager
     std::string             _mappings_path;
     std::map<std::string, std::vector<Mapping>> _mappings;
 
+    CPUList                 _blocked_cpus;
+
     std::vector<Mapping> parse_mapping(const std::string& file)
     {
         CSVData data{file};
@@ -299,7 +301,7 @@ class Manager
 
         /* Now get all the mappings (containing equivalent ones) from the possible ones,
          * that still fit on the non-occupied CPUs. */
-        CPUList occupied_cpus;
+        CPUList occupied_cpus = _blocked_cpus;
         for (const auto& [name, cl] : _clients) {
             if (cl.pid == c.pid)
                 continue;
@@ -565,6 +567,16 @@ class Manager
                         c.active_mapping.characteristic(c.comp.criteria()), c.comp.repr().c_str(),
                         c.active_mapping.equivalence_class().name().c_str());
             }
+            case ControlData::Operations::BLOCK_CPUS:
+                logger->info("Update blocked cpus\n");
+
+                _blocked_cpus = data.block_cpus_data.cpus;
+
+                if (_blocked_cpus.nr_cpus() == 0)
+                    logger->info(" * blocked: none\n");
+                else
+                    logger->info(" * blocked: %s\n", string_util::join(_blocked_cpus.cpulist(num_cpus), ",").c_str());
+                break;
             default:
                 logger->warning("Other control message received\n");
         }

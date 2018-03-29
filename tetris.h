@@ -4,6 +4,9 @@
 #pragma once
 
 
+#include <sched.h>
+
+
 static const char* SERVER_SOCKET = "/tmp/tetris_socket";
 static const char* CONTROL_SOCKET = "/tmp/tetris_ctl";
 
@@ -12,6 +15,7 @@ struct ControlData {
     enum Operations {
         UPDATE_CLIENT = 1,
         UPDATE_MAPPINGS = 2,
+        BLOCK_CPUS = 3,
         ERROR
     };
 
@@ -29,6 +33,9 @@ struct ControlData {
             bool has_filter_criteria;
             char filter_criteria[50];
         } update_data;
+        struct {
+            cpu_set_t cpus;
+        } block_cpus_data;
     };
 };
 

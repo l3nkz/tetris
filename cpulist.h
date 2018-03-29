@@ -38,6 +38,23 @@ class CPUList
             CPU_SET(c, &_cpus);
     }
 
+    explicit CPUList(cpu_set_t cpus) :
+        _cpus{cpus}
+    {}
+
+    CPUList(const CPUList& o) = default;
+    CPUList(CPUList&& o) = default;
+
+    CPUList& operator=(const CPUList& o) = default;
+    CPUList& operator=(CPUList&& o) = default;
+
+    CPUList& operator=(cpu_set_t cpus)
+    {
+        _cpus = cpus;
+
+        return *this;
+    }
+
     bool operator==(const CPUList& o) const
     {
         return CPU_EQUAL(&_cpus, &o._cpus);
@@ -88,6 +105,11 @@ class CPUList
     void clear(int cpu_nr)
     {
         CPU_CLR(cpu_nr, &_cpus);
+    }
+
+    void zero()
+    {
+        CPU_ZERO(&_cpus);
     }
 
     bool overlaps_with(const CPUList& o) const
