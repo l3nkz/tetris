@@ -186,7 +186,7 @@ class Client
             threads.emplace_back(name, tid, cpus);
 
             cpu_set_t mask = cpus.cpu_set();
-            if (sched_setaffinity(pid, sizeof(cpu_set_t), &mask) != 0)
+            if (sched_setaffinity(tid, sizeof(cpu_set_t), &mask) != 0)
                 logger->warning("Failed to set cpu affinity for thread '%s': %s\n", name.c_str(), strerror(errno));
         } else
             logger->warning("Duplicate thread '%s'\n", name.c_str());
