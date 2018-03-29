@@ -566,6 +566,8 @@ class Manager
                 logger->info(" * mapping: %s (%.0f@%s) [%s]\n", c.active_mapping.name.c_str(),
                         c.active_mapping.characteristic(c.comp.criteria()), c.comp.repr().c_str(),
                         c.active_mapping.equivalence_class().name().c_str());
+
+                break;
             }
             case ControlData::Operations::BLOCK_CPUS:
                 logger->info("Update blocked cpus\n");
