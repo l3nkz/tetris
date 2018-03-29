@@ -53,7 +53,7 @@ class Logger
         timeinfo = std::localtime(&rawtime);
 
         char timestr[80];
-        std::strftime(timestr, 80, "%Y-%m-%D %H:%M:%S", timeinfo);
+        std::strftime(timestr, 80, "%Y-%m-%d %H:%M:%S", timeinfo);
 
         char buffer[255];
         std::snprintf(buffer, 255, "%s %s: %s", lvl, timestr, fmt);
