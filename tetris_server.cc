@@ -156,7 +156,7 @@ class Client
             else
                 cpus = active_mapping.cpu(t.name);
 
-            logger->debug(" * remap thread '%s' [%i] from cpu(s) %s to cpu(s) %s\n", t.name.c_str(), t.tid,
+            logger->info(" * remap thread '%s' [%i] from cpu(s) %s to cpu(s) %s\n", t.name.c_str(), t.tid,
                     string_util::join(t.cpus.cpulist(num_cpus), ",").c_str(),
                     string_util::join(cpus.cpulist(num_cpus), ",").c_str());
 
@@ -175,10 +175,10 @@ class Client
         CPUList cpus;
         if (dynamic_client) {
             cpus = active_mapping.cpus;
-            logger->debug(" * enabled cpu(s) %s (dynamic client)\n", string_util::join(cpus.cpulist(num_cpus), ",").c_str());
+            logger->info(" * enabled cpu(s) %s (dynamic client)\n", string_util::join(cpus.cpulist(num_cpus), ",").c_str());
         } else {
             cpus = active_mapping.cpu(name);
-            logger->debug(" * enabled cpu(s) %s\n", string_util::join(cpus.cpulist(num_cpus), ",").c_str());
+            logger->info(" * enabled cpu(s) %s\n", string_util::join(cpus.cpulist(num_cpus), ",").c_str());
         }
 
         auto it = std::find_if(threads.begin(), threads.end(), [&](const auto& t) { return t.name == name; });
