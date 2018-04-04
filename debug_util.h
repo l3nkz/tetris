@@ -65,7 +65,7 @@ class Logger
     void debug(const char* fmt, Args... args)
     {
         if (_level >= DEBUG)
-            output("[DEBUG]", fmt, args...);
+            output("DEBUG", fmt, args...);
     }
 
     template <typename... Args>
@@ -79,14 +79,14 @@ class Logger
     void warning(const char* fmt, Args... args)
     {
         if (_level >= WARNING)
-            output("[WARNING]", fmt, args...);
+            output("WARNING", fmt, args...);
     }
 
     template <typename... Args>
     void error(const char* fmt, Args... args)
     {
         if (_level >= ERROR)
-            output("[ERROR]", fmt, args...);
+            output("ERROR", fmt, args...);
     }
 
     template <typename... Args>
