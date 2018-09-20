@@ -62,6 +62,7 @@ struct TetrisData {
             char filter_criteria[50];
         } new_client_data;
         struct {
+            int id;
             bool managed;
         } new_client_ack_data;
         struct {

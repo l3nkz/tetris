@@ -169,6 +169,11 @@ bool tetris_new_client(LockedConnection conn, int pid, const char* exec, char* m
         return false;
     }
 
+    if (data.new_client_ack_data.managed)
+        logger->info("TETRIS-ID: %d\n", data.new_client_ack_data.id);
+    else
+        logger->info("TETRIS-ID: not managed\n");
+
     return data.new_client_ack_data.managed;
 }
 

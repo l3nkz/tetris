@@ -477,6 +477,7 @@ class Manager
                         /* We need to acknowledge this message. */
                         TetrisData ack;
                         ack.op = TetrisData::NEW_CLIENT_ACK;
+                        ack.new_client_ack_data.id = fd;
                         ack.new_client_ack_data.managed = managed;
 
                         if (conn->write(ack) != Connection::OutState::DONE) {
