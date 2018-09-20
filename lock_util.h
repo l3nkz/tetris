@@ -94,7 +94,7 @@ class Lockable
 
     bool try_lock()
     {
-        _m.try_lock();
+        return _m.try_lock();
     }
 
     friend class Locked<T>;
